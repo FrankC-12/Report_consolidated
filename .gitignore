@@ -1,0 +1,4 @@
+#Entorno virtual
+venv/
+#Api key
+api_key.txt
