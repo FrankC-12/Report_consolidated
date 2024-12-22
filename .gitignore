@@ -1,4 +1,4 @@
 #Entorno virtual
 venv/
-#Api key
-api_key.txt
+#Archivo .env 
+.env
