@@ -2,3 +2,5 @@
 venv/
 #Archivo .env 
 .env
+
+.gitignore
