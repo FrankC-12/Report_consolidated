@@ -130,17 +130,6 @@ def general_info(api_key, start_date, end_date):
     # Agregar la tabla a los elementos del PDF
     elements.append(table)
 
-    # Generar el PDF
-    pdf.build(elements)
-    print(f"PDF generado: {pdf_file}")
-
- # Con formato requerido
-
-general_info(api_key, start_date, end_date)
-
-
-
-
 
 def general_rates_by_date(api_key, start_date, end_date):
     """
@@ -264,17 +253,6 @@ def general_rates_by_date(api_key, start_date, end_date):
 
     # Add table to elements
     elements.append(table)
-
-    # Build the PDF
-    pdf.build(elements)
-    print(f"PDF generado: {pdf_file}")
-
-
-# Llamada a la función con formato correcto de fechas
-
-general_rates_by_date(api_key, start_date, end_date)
-
-
 
 
 def general_rates_by_vehicle(api_key, start_date, end_date):
@@ -440,13 +418,7 @@ def general_rates_by_vehicle(api_key, start_date, end_date):
     # Agregar la tabla al documento
     elements.append(table)
 
-    # Construir el PDF
-    pdf.build(elements)
-    print(f"PDF generado: {pdf_file}")
-
-
-
-general_rates_by_vehicle(api_key = api_key, start_date = start_date, end_date = end_date)
+    
 
 def general_rates_by_payments(api_key, start_date, end_date):
     """
@@ -603,10 +575,5 @@ def general_rates_by_payments(api_key, start_date, end_date):
     # Agregar la tabla al documento
     elements.append(table)
 
-    # Construir el PDF
-    pdf.build(elements)
-    print(f"PDF generado: {pdf_file}")
-
-
-general_rates_by_payments(api_key = api_key, start_date = start_date, end_date = end_date)
+    
 
