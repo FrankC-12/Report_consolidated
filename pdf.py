@@ -40,14 +40,14 @@ generate_report_general_report_consolidated = api.model('GeneralReportPayload', 
 })
 ns = api.namespace("reports", description="Report Generation Endpoints")
 
-AUTH_SERVICE_URL = "http://127.0.0.1:3001"  # Cambiar según sea necesario
 
-
+locale.setlocale(locale.LC_ALL, 'es_VE.UTF-8')
 venezuelan_hour = pytz.timezone('America/Caracas')
 
 class Report_Generator(FPDF):
 
-    def __init__(self, api_key, start_date, end_date):
+        
+    def __init__(self, api_key, start_date, end_date,supervisor_info,general_report_type, report_name):
         """
         Initializes the report object with the given parameters.
 
@@ -94,6 +94,10 @@ class Report_Generator(FPDF):
         self.start_date = start_date
         self.end_date = end_date
         self.format_dot_comma = format_dot_comma
+        self.supervisor_info = supervisor_info
+
+        self.report_name = report_name
+        self.general_report_type = general_report_type 
     def fetch_data_from_backend(self):
         """
         Realiza una solicitud al backend y retorna el JSON de respuesta.
@@ -317,10 +321,12 @@ class Report_Generator(FPDF):
         Returns:
         - None
         """
+        # Set up the header with the Venpax logo, title, generation date, supervisor information, and date range
+
+        #Set up the Venpax's Image
         self.image('venpax-full-logo.png', 10, 8, 85)
         self.set_font('Arial', 'B', 16)
         self.set_text_color(40, 40, 40)
-        # Move to the right
         self.set_x(100)
 
         self.cell(0,12, 'Resumen General de Recaudación',align='R',ln=1)
@@ -328,6 +334,13 @@ class Report_Generator(FPDF):
         self.cell(208 - self.get_string_width(f'Generado el {datetime.strftime(datetime.now(venezuelan_hour), "%d/%m/%Y %H:%M:%S")}'), 5, 'Generado el ', 0, 0, 'R')
         self.set_font('Arial', '', 8.5)
         self.cell(0, 5, f' {datetime.strftime(datetime.now(venezuelan_hour), "%d/%m/%Y %H:%M:%S")}', 0, 1, align='R')
+
+        self.set_font('Arial', 'B', 8.5)
+        self.cell(213 - self.get_string_width(f'Solicitado por: {self.supervisor_info}'),5, 'Solicitado por: ',align='R')
+        self.set_font('Arial', '', 8.5)
+        self.cell(0, 5, f'{self.supervisor_info}', 0, 1, align='R')
+
+
 
         self.cell(0,5, f'Del {datetime.strftime(datetime.fromisoformat(self.start_date), "%d/%m/%Y %H:%M:%S")} al {datetime.strftime(datetime.fromisoformat(self.end_date), "%d/%m/%Y %H:%M:%S")}',align='R', ln=1)
 
@@ -391,7 +404,13 @@ class Report_Generator(FPDF):
         """
 
         # Retrieve general payment and amount information within the specified date range
-        general_info = Tickets.get_tickets_total_amount_per_date_per_currency(start_date=self.start_date, end_date=self.end_date)
+        # Obtenemos los datos directamente desde el backend
+        json_data = self.fetch_data_from_backend()
+
+        # Verificamos si la respuesta es válida
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
     
         fechas = []
         pagos = []
@@ -593,12 +612,14 @@ class Report_Generator(FPDF):
         delta_days = (end_date_dt - start_date_dt).days
 
         
-        # Retrieve vehicle payment data
-        tarifas = Tickets.get_vehicles_general(self.start_date, self.end_date)
+        # Obtenemos los datos directamente desde el backend
+        json_data = self.fetch_data_from_backend()
 
-        # Adjust data with pafo directo info
-        tarifas[1]["cantidad"] = tarifas[1]["cantidad"] + self.pago_directo_info[0]
-        tarifas[1]["monto"] = tarifas[1]["monto"] + self.pago_directo_info[1]
+        # Verificamos si la respuesta es válida
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+
 
         
         # Prepare data for DataFrame
@@ -1948,7 +1969,6 @@ class Report_Generator(FPDF):
             return
 
         # Procesar los datos obtenidos
-        # Verificamos que la estructura de los datos sea la esperada
         try:
             # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
             first_data_item = json_data.get("data", [])[0]  # Obtener el primer elemento de la lista "data"
@@ -1960,10 +1980,14 @@ class Report_Generator(FPDF):
             total_payments_usd = general_data.get("total_payments_usd", 0)
             vehicles = general_data.get("vehicles", 0)
 
-            # Preparamos los datos finales para mostrarlos en el reporte
+            # Formateamos los datos finales para mostrarlos en el reporte
             finals = [
                 ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
-                (f"Bs. {locale.format_string('%2f',total_payments_bs, True)}", f"$ {locale.format_string('%2f',total_payments_usd, True)}", f"{vehicles:,}"),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
+                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
+                ),
             ]
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
@@ -1972,17 +1996,13 @@ class Report_Generator(FPDF):
         # Formatear los datos y añadirlos al PDF
         for j, row in enumerate(finals):
             for datum in row:
-                if j == 0 or j == 2:
+                if j == 0:  # Primera fila: títulos
                     self.set_font('Arial', 'B', 13)
                     self.set_fill_color(255, 194, 0)
                     self.set_text_color(40, 40, 40)
-                elif j == 1 or j == 3:
+                elif j == 1:  # Segunda fila: datos
                     self.set_font('Arial', 'B', 12)
                     self.set_fill_color(255, 255, 255)
-                    self.set_text_color(40, 40, 40)
-                elif j == 4:
-                    self.set_font('Arial', 'B', 12)
-                    self.set_fill_color(235, 235, 235)
                     self.set_text_color(40, 40, 40)
 
                 # Tamaño de la celda y contenido
@@ -1992,6 +2012,8 @@ class Report_Generator(FPDF):
 
         # Resetear el formato de texto al predeterminado
         self.set_font('Arial', '', 12)
+
+
 
 
             
@@ -2043,8 +2065,8 @@ class Report_Generator(FPDF):
                     locale.format_string('%.4f', exchange_rate_tc, grouping=True),
                     locale.format_string('%.2f', amount_daily_usd, grouping=True),
                     locale.format_string('%.2f', cash_ves, grouping=True),
-                    locale.format_string('%.0f', cash_usd, grouping=True),
-                    locale.format_string('%.0f', cash_cop, grouping=True),
+                    locale.format_string('%.2f', cash_usd, grouping=True),
+                    locale.format_string('%.2f', cash_cop, grouping=True),
                 ])
 
                 # Actualizar los totales
@@ -2060,11 +2082,11 @@ class Report_Generator(FPDF):
                 "Totales",
                 locale.format_string('%.0f', totals["pagos"], grouping=True),
                 locale.format_string('%.2f', totals["monto"], grouping=True),
-                
+                "-",
                 locale.format_string('%.2f', totals["monto_usd"], grouping=True),
                 locale.format_string('%.2f', totals["cash_ves"], grouping=True),
-                locale.format_string('%.0f', totals["cash_usd"], grouping=True),
-                locale.format_string('%.0f', totals["cash_cop"], grouping=True),
+                locale.format_string('%.2f', totals["cash_usd"], grouping=True),
+                locale.format_string('%.2f', totals["cash_cop"], grouping=True),
             ])
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
@@ -2074,33 +2096,31 @@ class Report_Generator(FPDF):
         col_width = (self.w - 20) / 8  # Ajustar ancho de columnas
         line_height = 8
 
-        
         subtitle = "Resumen de Accesos e Ingresos por Fecha"
         self.subtitle_centered(subtitle)
         self.set_line_width(0)
 
         # Imprimir los datos en formato tabla
-        for j,row in enumerate(table_data):
+        for j, row in enumerate(table_data):
             for datum in row:
-
-                if j == 0:
+                if j == 0:  # Primera fila: títulos
                     self.set_font('Arial', 'B', 8)
-                    self.set_fill_color(255,194,0)
-                    self.set_text_color(40,40,40)
-                elif j == len(table_data)-1:
+                    self.set_fill_color(255, 194, 0)
+                    self.set_text_color(40, 40, 40)
+                elif j == len(table_data) - 1:  # Última fila: totales
                     self.set_font('Arial', 'B', 8)
-                    self.set_fill_color(235,235,235)
-                    self.set_text_color(40,40,40)
-                elif j%2 == 0:
+                    self.set_fill_color(235, 235, 235)
+                    self.set_text_color(40, 40, 40)
+                elif j % 2 == 0:  # Filas pares
                     self.set_font('Arial', '', 8)
-                    self.set_fill_color(255,255,255)
-                    self.set_text_color(40,40,40)
-                elif j%2 == 1:
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                elif j % 2 == 1:  # Filas impares
                     self.set_font('Arial', '', 8)
-                    self.set_fill_color(249,249,249)
-                    self.set_text_color(40,40,40)
+                    self.set_fill_color(249, 249, 249)
+                    self.set_text_color(40, 40, 40)
 
-                self.cell(col_width, line_height, datum, border=0,align='C', fill=True)
+                self.cell(col_width, line_height, datum, border=0, align='C', fill=True)
             self.ln(line_height)
      
 
@@ -2147,8 +2167,8 @@ class Report_Generator(FPDF):
                 cop_cash = data["cash_collected"]["COP"]
 
                 # Calcular porcentajes
-                percentage_amount = (amount / total_amount) * 100
-                percentage_ves_cash = (total / total_ves_amount) * 100
+                percentage_amount = (amount / total_amount) * 100 if total_amount else 0
+                percentage_ves_cash = (total / total_ves_amount) * 100 if total_ves_amount else 0
 
                 table_data.append([
                     data["nombre"],
@@ -2180,8 +2200,6 @@ class Report_Generator(FPDF):
         col_width_first_column = (self.w - 20) * 0.3  # Ancho de la primera columna
         col_width_others = (self.w - 20) * 0.1  # Ancho de las demás columnas
         line_height = 8
-        
-
 
         subtitle = "Resumen de Tarifas General"
         self.subtitle_centered(subtitle)
@@ -2189,38 +2207,269 @@ class Report_Generator(FPDF):
 
         # Imprimir los datos en formato tabla
         for j, row in enumerate(table_data):
-            counter = 0
             for i, datum in enumerate(row):
                 if j == 0:  # Encabezados
                     self.set_font('Arial', 'B', 8)
                     self.set_fill_color(255, 194, 0)
                     self.set_text_color(40, 40, 40)
-                elif j == len(table_data) - 1:
+                elif j == len(table_data) - 1:  # Totales
                     self.set_font('Arial', 'B', 8)
                     self.set_fill_color(235, 235, 235)
                     self.set_text_color(40, 40, 40)
-                elif j % 2 == 0:
+                elif j % 2 == 0:  # Filas pares
                     self.set_font('Arial', '', 8)
                     self.set_fill_color(255, 255, 255)
                     self.set_text_color(40, 40, 40)
-                elif j % 2 == 1:
+                else:  # Filas impares
                     self.set_font('Arial', '', 8)
                     self.set_fill_color(249, 249, 249)
                     self.set_text_color(40, 40, 40)
 
-                if counter == 0:
+                # Ajustar el ancho de columna
+                if i == 0:  # Primera columna
                     self.cell(col_width_first_column, line_height, datum, border=0, align='C', fill=True)
-                else:
+                else:  # Otras columnas
                     self.cell(col_width_others, line_height, datum, border=0, align='C', fill=True)
-                counter += 1
             self.ln(line_height)
+
+    def general_rates_by_vehicle_2(self):
+        """
+        Generates a detailed report of vehicle rates with charts.
+        """
+        # Obtener datos desde el backend
+
+        date_format = "%Y-%m-%dT%H:%M:%S" 
+
+        try:
+            # Calcular la diferencia de días entre las fechas de inicio y fin
+            start_date_dt = datetime.strptime(self.start_date, date_format)
+            end_date_dt = datetime.strptime(self.end_date, date_format)
+        except ValueError as e:
+            print(f"Error en el formato de las fechas: {e}")
+            return
+
+        delta_days = (end_date_dt - start_date_dt).days
+        
+
+        json_data = self.fetch_data_from_backend()
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+
+        # Procesar los datos obtenidos
+        try:
+            first_data_item = json_data.get("data", [])[0]
+            results = first_data_item.get("data", {}).get("results", {})
+            general_data = results.get("tarifas", {})
+
+            if not general_data:
+                print("No se pudieron obtener los datos de tarifas. No se generará el reporte.")
+                return
+
+            # Inicializar datos
+            nombres = []
+            cantidades = []
+            montos = []
+
+            for tipo, data in general_data.items():
+                nombres.append(data["nombre"])
+                cantidades.append(data["cantidad"])
+                montos.append(data["monto"])
+
+            # Crear DataFrames
+            df_1 = pd.DataFrame({'Nombre': nombres, 'Cantidad': cantidades})
+            df_2 = pd.DataFrame({'Nombre': nombres, 'Monto': montos})
+
+            # Ordenar datos
+            orden_vehiculos = {
+                'Vehículo liviano': 1, 'Microbús': 2, 'Autobús': 3,
+                'Camión liviano': 4, 'Camión 2 ejes': 5, 'Camión 3 ejes': 6,
+                'Camión 4 ejes': 7, 'Camión 5 ejes': 8, 'Camión 6+ ejes': 9,
+                'Exonerado General': 10, 'Exonerado Ambulancia': 11,
+                'Exonerado Seguridad': 12, 'Exonerado Gobernación': 13,
+                'Exonerado PDVSA': 14
+            }
+            df_1['Orden'] = df_1['Nombre'].map(orden_vehiculos)
+            df_1_sorted = df_1.sort_values('Orden')
+
+            df_2['Orden'] = df_2['Nombre'].map(orden_vehiculos)
+            df_2_sorted = df_2.sort_values('Orden')
+
+            # Configuramos el tamaño de la figura
+            bio = BytesIO()   
+
+            plt.rcParams.update({'font.family': 'Arial'})
+
+            if delta_days > 3:
+                fig, ax = plt.subplots(2, 2, figsize=(16, 17))
+            else:
+                fig, ax = plt.subplots(2, 2, figsize=(16, 12))
+            # Crear gráficos de barras horizontales
+            sns.barplot(
+                ax=ax[0, 0],
+                x='Cantidad', 
+                y='Nombre', 
+                data=df_1_sorted,
+                color="#FFCB26",
+                saturation=1
+            )
+            sns.barplot(
+            ax=ax[0, 1],
+            x='Monto', 
+            y='Nombre', 
+            data=df_2_sorted,
+            color="#FFCB26",
+            saturation=1
+            )
+
+            ax[0, 0].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
+            ax[0, 0].set_xticklabels(ax[0, 0].get_xticklabels(), rotation=45, ha='center')
+
+            ax[0, 1].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
+            ax[0, 1].set_xticklabels(ax[0, 1].get_xticklabels(), rotation=45, ha='center')
+
+            # Agregar títulos a cada gráfica
+            ax[0, 0].set_title('Cantidad de Pagos por Categoría', fontsize=15, pad=20, loc='center', weight='bold')
+            ax[0, 1].set_title('Monto de Pagos por Categoría', fontsize=15, pad=20, loc='center', weight='bold')
+
+            # Añadir etiquetas de porcentaje encima de cada barra
+            for index, value in enumerate(df_1_sorted['Cantidad']):
+                ax[0, 0].text(df_1_sorted['Cantidad'].max() * 0.05, index, f'Total = {str(locale.format_string("%.f", value, True))}', va='center', fontsize=10, color='black', weight='bold')
+
+            for index, value in enumerate(df_2_sorted['Monto']):
+                ax[0, 1].text(df_2_sorted['Monto'].max() * 0.05, index, f'Bs. {str(locale.format_string("%.2f", value, True))}', va='center', fontsize=10, color='black', weight='bold')
+
+            ax[0, 0].set_xlim(0, df_1_sorted['Cantidad'].max() * 1.2)
+            ax[0, 1].set_xlim(0, df_2_sorted['Monto'].max() * 1.2)
+
+            def thousands_cantidad(x, pos):
+                return str(locale.format_string('%.f', x, True))
+
+            def thousands_monto(x, pos):
+                return str(locale.format_string('%.2f', x, True))
+
+            formatter_cantidad = FuncFormatter(thousands_cantidad)
+            formatter_monto = FuncFormatter(thousands_monto)
+
+            # Aplicar el formateador al eje x
+            ax[0, 0].xaxis.set_major_formatter(formatter_cantidad)
+            ax[0, 1].xaxis.set_major_formatter(formatter_monto)
+
+            # Añadir etiquetas y títulos con margen superior
+            ax[0, 0].set_xlabel('Cantidad de pagos', fontsize=16, labelpad=20, weight='bold')
+            ax[0, 0].set_ylabel('Categorías', fontsize=16, weight='bold', labelpad=20)
+            ax[0, 1].set_xlabel('Monto Recolectado', fontsize=16, labelpad=20, weight='bold')
+            ax[0, 1].set_ylabel('', fontsize=12, weight='bold')
+
+            # Eliminar etiquetas del eje y de la segunda gráfica de barras
+            ax[0, 1].set_yticklabels([])
+            ax[0, 1].tick_params(left=False)
+            ax[0, 0].grid(False)
+            ax[0, 1].grid(False)
+
+            # Añadir líneas horizontales entre las barras
+            for i in range(len(df_1_sorted)):
+                ax[0, 0].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
+                ax[0, 1].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
+
+            # Agregar gráficas de torta
+       
+            df_3 = pd.DataFrame({'Nombre': nombres, 'Cantidad': cantidades})
+            df_4 = pd.DataFrame({'Nombre': nombres, 'Monto': montos})
+
+            delta_days = (end_date_dt - start_date_dt).days
+
+            colorPalette = [
+                        '#FFC200', 
+                        '#FF7F50', 
+                        '#FF6B81',
+                        '#66CCCC', 
+                        '#6699CC', 
+                        '#FF8C00', 
+                        '#99CCFF', 
+                        '#66FF99',
+                        '#FF99CC', 
+                        '#CC99FF', 
+                        '#FF6348', 
+                        '#FF69B4', 
+                        '#FFFF99', 
+                        '#99FF99'  
+                    ]
+            
+            df_4['Orden'] = df_4['Nombre'].map(orden_vehiculos)
+
+            def my_autopct(pct):
+                return f'{pct:.1f}%' if pct > 4 else ''
+
+            if delta_days > 3:
+                ax[1, 0].pie(df_3['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.3)
+                ax[1, 1].pie(df_4['Monto'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.3)
+                plt.subplots_adjust(wspace=0.035, hspace=0.7)
+                ax[1, 0].set_title('Porcentaje de Cantidad de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-1.12, y=1.15)
+                ax[1, 1].legend(loc='upper center', labels=df_4['Nombre'], bbox_to_anchor=(-0.6, -0.2), ncol=3, prop={'size': 15})
+
+                ax[1, 1].set_title('Porcentaje de Monto de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-0.26, y=1.15)
+            else:
+                ax[1, 0].pie(df_3['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.1)
+                ax[1, 1].pie(df_4['Monto'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.1)
+                plt.subplots_adjust(wspace=0.035, hspace=0.7)
+                
+                ax[1, 0].set_title('Porcentaje de Cantidad de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-1.6, y=1.05)
+                ax[1, 0].legend(loc='upper center', labels=df_4['Nombre'], bbox_to_anchor=(2.35, -0.1), ncol=3, prop={'size': 13})
+                ax[1, 1].set_title('Porcentaje de Monto de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-0.5, y=1.05)
+            ax[1, 0].set_xlim(-0.1, 1)
+            ax[1, 1].set_xlim(-0.8, 1)
+
+            # Define el color para las líneas
+            color_lineas1 = 'white'
+            color_lineas2 = 'grey'
+
+            # Añadir líneas horizontales entre las barras
+            for i in range(len(df_1_sorted)):
+                ax[0, 0].axhline(y=i-0.5, color=color_lineas2, linewidth=0.8, linestyle='--')
+                ax[0, 1].axhline(y=i-0.5, color=color_lineas2, linewidth=0.8, linestyle='--')
+
+            # Añadir una línea al borde de la gráfica
+            for i in range(2):
+                for j in range(2):
+                    ax[i, j].spines['top'].set_color(color_lineas1)
+                    ax[i, j].spines['right'].set_color(color_lineas1)
+                    ax[i, j].spines['bottom'].set_color(color_lineas2)
+                    ax[i, j].spines['left'].set_color(color_lineas2)
+            
+            # Mostramos el gráfico
+            fig.savefig(bio, format="png", bbox_inches='tight')
+            img_encoded = base64.b64encode(bio.getvalue()).decode()
+            with open("temp_img_chart_collected_per_vehicles2.png", "wb") as f:
+                f.write(base64.b64decode(img_encoded))
+            self.ln(5)
+
+            self.set_font('Arial', 'B', 11.5)
+            self.set_fill_color(255,194,0)
+            self.set_text_color(40,40,40)
+            line_height = self.font_size * 2.5
+            self.cell(0, line_height, 'Gráficos de Vehículos', border=0, align='L', fill=True, ln=1)
+
+            self.ln(7)
+            x_position = (216 - 180) / 2 
+
+            if delta_days > 3:
+                self.image("temp_img_chart_collected_per_vehicles2.png", x=x_position, h=200, w=180)
+            else:
+                self.image("temp_img_chart_collected_per_vehicles2.png", x=x_position, h=140, w=180)
+            os.remove("temp_img_chart_collected_per_vehicles2.png")
+
+        except Exception as e:
+            print(f"Error procesando los datos: {e}")
+
+
 
 
     def general_rates_by_payment_types(self):
         """
         Generates a detailed report of payment methods and their respective rates.
         """
-        print("LLego aqui ")
+        # Título del reporte
         subtitle = "Resumen de Métodos de Pago General"
 
         # Obtener datos desde el backend
@@ -2229,27 +2478,20 @@ class Report_Generator(FPDF):
             print("No se pudo obtener los datos del backend. No se generará el PDF.")
             return
 
-        # Procesar los datos obtenidos
         try:
             # Verificar si la estructura de los datos es válida
-            print("Paso por aqui 1")
             data = json_data.get("data", [])
-            print("Paso por aqui 2")
-
             if not data:
                 print("No se encontraron datos en la respuesta del backend.")
                 return
-            print("Paso por aqui 3")
 
-            first_data_item = data[0]  # Obtener el primer item de la lista de datos
+            first_data_item = data[0]  # Obtener el primer elemento de la lista de datos
             results = first_data_item.get("data", {}).get("results", {})
             general_data = results.get("metodos_pago", {})
-            print("Paso por aqui 4")
 
             if not general_data:
                 print("No se pudieron obtener los datos de métodos de pago. No se generará el reporte.")
                 return
-            print("Paso por aqui 5")
 
             # Inicializar variables para los totales
             total_num_transactions = 0
@@ -2262,48 +2504,48 @@ class Report_Generator(FPDF):
                 "Ventag", "VenVías", "Cobretag", "Pago Directo Bluetooth", "Exonerado", "Diferencial Cambiario"
             ]
 
-            # Lista para almacenar los resultados
+            # Lista para almacenar los datos de la tabla
             table_data = [["Método de Pago", "N° Transacciones", "% Transacciones", "Monto Bs", "% Monto"]]
-            print("Paso por aqui 6")
 
-            # Primero, acumular los totales por cada grupo (Dólares, Pesos, Bolívares)
+            # Calcular totales generales
             for group_key, group in general_data.items():
-                if isinstance(group, dict):  # Verificamos que 'group' sea un diccionario
+                if isinstance(group, dict):
                     for payment_key, data in group.items():
-                        if isinstance(data, dict):  # Verificamos que 'data' sea un diccionario
-                            # Acumulando los totales
-                            total_num_transactions += data.get('num_transactions', 0)
+                        if isinstance(data, dict):
+                            total_num_transactions += data.get("num_transactions", 0)
                             total_ves_amount += data.get("amount_pivoted", 0)
-            print("Paso por aqui 7")
 
-                # Ahora agregamos los detalles de cada método de pago a la lista 'finals', respetando el orden
+            # Generar filas para cada método de pago en el orden definido
             for payment_name in payment_order:
-                # Buscar el método de pago en cada grupo
                 found = False
                 for group_key, group in general_data.items():
                     if isinstance(group, dict):
                         for payment_key, data in group.items():
                             if isinstance(data, dict) and data.get("name") == payment_name:
-                                # Si encontramos el método de pago, lo agregamos
+                                # Obtener valores de datos
                                 amount = data.get("num_transactions", 0)
                                 total = data.get("amount_pivoted", 0)
-                                percentage_transactions = data.get("percentage_transactions", 0)
-                                percentage_amount_collected = data.get("percentage_amount_collected", 0)
+                                percentage_transactions = (
+                                    (amount / total_num_transactions) * 100 if total_num_transactions else 0
+                                )
+                                percentage_amount_collected = (
+                                    (total / total_ves_amount) * 100 if total_ves_amount else 0
+                                )
 
+                                # Agregar fila a la tabla
                                 table_data.append(
-                                    (
-                                        str(payment_name),
-                                        str(locale.format_string('%.0f', amount, True)),
-                                        f"{str(locale.format_string('%.2f', percentage_transactions, True))}%",
-                                        str(locale.format_string('%.2f', total, True)),
-                                        f"{str(locale.format_string('%.2f', percentage_amount_collected, True))}%",
-                                    )
+                                    [
+                                        payment_name,
+                                        locale.format_string('%.0f', amount, grouping=True),
+                                        f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
+                                        locale.format_string('%.2f', total, grouping=True),
+                                        f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
+                                    ]
                                 )
                                 found = True
                                 break
                     if found:
                         break
-            print("Paso por aqui 8")
 
             # Agregar fila de totales
             table_data.append([
@@ -2320,35 +2562,34 @@ class Report_Generator(FPDF):
 
         # Generar el PDF
         line_height = self.font_size * 2.5
-        col_width = (self.w-20)/ 5
+        col_width = (self.w - 20) / 5
 
-        subtitle = "Resumen de Métodos de Pago General"
         self.subtitle_centered(subtitle)
         self.set_line_width(0)
 
         for j, row in enumerate(table_data):
             for i, datum in enumerate(row):
-                if j == 0:
+                # Estilos por fila
+                if j == 0:  # Encabezados
                     self.set_font('Arial', 'B', 8)
-                    self.set_fill_color(255,194,0)
-                    self.set_text_color(40,40,40)
-                elif j == len(table_data)-1:
+                    self.set_fill_color(255, 194, 0)
+                    self.set_text_color(40, 40, 40)
+                elif j == len(table_data) - 1:  # Totales
                     self.set_font('Arial', 'B', 8)
-                    self.set_fill_color(235,235,235)
-                    self.set_text_color(40,40,40)
-                elif j % 2 == 0:
+                    self.set_fill_color(235, 235, 235)
+                    self.set_text_color(40, 40, 40)
+                elif j % 2 == 0:  # Filas pares
                     self.set_font('Arial', '', 8)
-                    self.set_fill_color(255,255,255)
-                    self.set_text_color(40,40,40)
-                elif j % 2 == 1:
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                else:  # Filas impares
                     self.set_font('Arial', '', 8)
-                    self.set_fill_color(249,249,249)
-                    self.set_text_color(40,40,40)
+                    self.set_fill_color(249, 249, 249)
+                    self.set_text_color(40, 40, 40)
 
                 self.cell(col_width, line_height, datum, border=0, align='C', fill=True)
             self.ln(line_height)
 
-        self.set_font('Arial', '', 12)
 
     def general_by_currency(self):
         """
@@ -2955,56 +3196,94 @@ class GeneralPDFReportConsolidate(Resource):
                 return {"message": "Los campos 'start_date', 'end_date' y 'username' son obligatorios."}, 400
 
             # Determinar tipo de reporte
-            is_complete = general_report_type.lower() == 'complete'
+            if general_report_type == 'Summaries':
 
-            # Instanciar la clase Report_Generator
-            api_key = Report_Generator.authenticate_to_backend()  # Obtener el API key
-            if not api_key:
-                return {"message": "Error al obtener el API key del backend."}, 500
+                # Instanciar la clase Report_Generator
+                api_key = Report_Generator.authenticate_to_backend()  # Obtener el API key
+                if not api_key:
+                    return {"message": "Error al obtener el API key del backend."}, 500
 
-            report_generator = Report_Generator(api_key=api_key, start_date=start_date, end_date=end_date)
+                report_generator = Report_Generator(api_key=api_key, start_date=start_date, end_date=end_date,supervisor_info=supervisor_name,general_report_type=general_report_type,report_name=report_name)
 
-            # Obtener los datos del backend
-            report_data = report_generator.fetch_data_from_backend()
+                # Obtener los datos del backend
+                report_data = report_generator.fetch_data_from_backend()
 
-            # Verificar si report_data es None o no es un diccionario
-            if not report_data:
-                return {"message": "Error al obtener los datos del backend."}, 500
-            if not isinstance(report_data, dict):
-                return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+                # Verificar si report_data es None o no es un diccionario
+                if not report_data:
+                    return {"message": "Error al obtener los datos del backend."}, 500
+                if not isinstance(report_data, dict):
+                    return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
 
-            # Generar el reporte PDF usando los datos obtenidos
-            pdf = Report_Generator(api_key=api_key, start_date=start_date, end_date=end_date)
+                # Generar el reporte PDF usando los datos obtenidos
+                pdf = Report_Generator(api_key=api_key, start_date=start_date, end_date=end_date,supervisor_info=supervisor_name,general_report_type=general_report_type,report_name=report_name)
 
-            # Asegúrate de llamar a add_page() para abrir la primera página
-            pdf.add_page()
-            print("Se logro")
+                # Asegúrate de llamar a add_page() para abrir la primera página
+                pdf.add_page()
 
-            
-            # Llamar a las funciones que generan las secciones del reporte
-            print("We are here")
-            pdf.general_info()
-            print("1")
-            pdf.general_rates_by_date()
-            print("2")
-            pdf.general_rates_by_vehicle()
-            print("3")
-            pdf.general_rates_by_payment_types()
-            print("4")
+                
+                # Llamar a las funciones que generan las secciones del reporte
+                pdf.general_info()
+                pdf.general_rates_by_vehicle_2()
+                pdf.general_rates_by_date()
+                pdf.general_rates_by_payment_types()
 
-            # Convertir el PDF a BytesIO
-            pdf_data_str = pdf.output(dest='S').encode('latin1')
-            print(f"Tipo de datos de pdf_data_str: {type(pdf_data_str)}")
-            pdf_data = io.BytesIO(pdf_data_str)
-            print("4")
+                # Convertir el PDF a BytesIO
+                pdf_data_str = pdf.output(dest='S').encode('latin1')
+                print(f"Tipo de datos de pdf_data_str: {type(pdf_data_str)}")
+                pdf_data = io.BytesIO(pdf_data_str)
+                print("4")
 
-            # Enviar el PDF como respuesta
-            return send_file(
-                pdf_data,
-                mimetype='application/pdf',
-                as_attachment=True,
-                download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
-            )
+                # Enviar el PDF como respuesta
+                return send_file(
+                    pdf_data,
+                    mimetype='application/pdf',
+                    as_attachment=True,
+                    download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+                )
+            else:
+                # Instanciar la clase Report_Generator
+                api_key = Report_Generator.authenticate_to_backend()  # Obtener el API key
+                if not api_key:
+                    return {"message": "Error al obtener el API key del backend."}, 500
+
+                report_generator = Report_Generator(api_key=api_key, start_date=start_date, end_date=end_date,supervisor_info=supervisor_name,general_report_type=general_report_type,report_name=report_name)
+
+                # Obtener los datos del backend
+                report_data = report_generator.fetch_data_from_backend()
+
+                # Verificar si report_data es None o no es un diccionario
+                if not report_data:
+                    return {"message": "Error al obtener los datos del backend."}, 500
+                if not isinstance(report_data, dict):
+                    return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+
+                # Generar el reporte PDF usando los datos obtenidos
+                pdf = Report_Generator(api_key=api_key, start_date=start_date, end_date=end_date,supervisor_info=supervisor_name)
+
+                # Asegúrate de llamar a add_page() para abrir la primera página
+                pdf.add_page()
+
+                
+                # Llamar a las funciones que generan las secciones del reporte
+                pdf.general_info()
+                pdf.general_rates_by_date()
+                pdf.general_rates_by_vehicle()
+                pdf.general_rates_by_payment_types()
+
+                # Convertir el PDF a BytesIO
+                pdf_data_str = pdf.output(dest='S').encode('latin1')
+                print(f"Tipo de datos de pdf_data_str: {type(pdf_data_str)}")
+                pdf_data = io.BytesIO(pdf_data_str)
+                print("4")
+
+                # Enviar el PDF como respuesta
+                return send_file(
+                    pdf_data,
+                    mimetype='application/pdf',
+                    as_attachment=True,
+                    download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+                )
+
 
         except KeyError as ke:
             return {"message": f"Falta un campo obligatorio: {str(ke)}"}, 400
