@@ -23,6 +23,7 @@ from io import BytesIO
 import base64
 import pytz
 import requests
+import json
 
 
 # Define el modelo del payload
@@ -45,9 +46,8 @@ locale.setlocale(locale.LC_ALL, 'es_VE.UTF-8')
 venezuelan_hour = pytz.timezone('America/Caracas')
 
 class Report_Generator(FPDF):
-
-        
-    def __init__(self, api_key, start_date, end_date,supervisor_info,general_report_type, report_name):
+       
+    def __init__(self, start_date, end_date,supervisor_info,general_report_type, report_name, state):
         """
         Initializes the report object with the given parameters.
 
@@ -90,14 +90,16 @@ class Report_Generator(FPDF):
         super().__init__()
         self.add_font('Arial', '', "./fonts/arial.ttf", uni=True)
         self.add_font('Arial', 'B', "./fonts/arial-bold.ttf", uni=True)
-        self.api_key = api_key
         self.start_date = start_date
         self.end_date = end_date
         self.format_dot_comma = format_dot_comma
         self.supervisor_info = supervisor_info
+        self.state = state
+        self.state_name = state
 
         self.report_name = report_name
         self.general_report_type = general_report_type 
+    
     def fetch_data_from_backend(self):
         """
         Realiza una solicitud al backend y retorna el JSON de respuesta.
@@ -106,12 +108,23 @@ class Report_Generator(FPDF):
             dict: El JSON de respuesta si la solicitud fue exitosa, None si no lo fue.
         """
         url = "http://127.0.0.1:3001/v1/consolidatedReport"
-        data = {
-            "start_date": self.start_date,
-            "end_date": self.end_date
-        }
+
+        if self.state:
+            data = {
+                "start_date": self.start_date,
+                "end_date": self.end_date,
+                "state": self.state
+            }
+        else:
+            data = {
+                "start_date": self.start_date,
+                "end_date": self.end_date
+            }
         
         apikey = self.authenticate_to_backend()
+        
+        if not apikey:
+            return {"message": "Error al obtener el API key del backend."}, 500
         
         headers = {
             "X-API-Key": apikey
@@ -121,7 +134,7 @@ class Report_Generator(FPDF):
             response = requests.post(url, json=data, headers=headers)
 
             if response.status_code == 200:
-                print("Datos obtenidos exitosamente del backend.")
+                print("Datos obtenidos exitosamente del backend (fetch from backend).")
                 return response.json()
             else:
                 print(f"Error al hacer el llamado: {response.status_code}")
@@ -130,6 +143,7 @@ class Report_Generator(FPDF):
         except requests.exceptions.RequestException as e:
             print(f"Error en la solicitud al backend: {e}")
             return None
+    
     @staticmethod
     def authenticate_to_backend():
         """
@@ -148,7 +162,7 @@ class Report_Generator(FPDF):
             response = requests.post(url, json=data)
 
             if response.status_code == 200:
-                print("Datos obtenidos exitosamente del backend.")
+                print("Datos obtenidos exitosamente del backend (auth).")
                 json_response = response.json()
                 return json_response.get("apiKey", {})
             else:
@@ -159,14 +173,14 @@ class Report_Generator(FPDF):
             print(f"Error en la solicitud al backend: {e}")
             return None
 
-    def general_rates_by_payment_types(self):
+    def general_rates_by_payment_types(self, report_data):
         """
         Generates a detailed report of payment methods and their respective rates.
         """
-        print("LLego aqui ")
 
-        # Obtener datos desde el backend
-        json_data = self.fetch_data_from_backend()
+        # Obtener datos por parámetros
+        json_data = report_data
+
         if not json_data:
             print("No se pudo obtener los datos del backend. No se generará el PDF.")
             return
@@ -290,8 +304,6 @@ class Report_Generator(FPDF):
                 str: The formatted number as a string.
             """
             return str(locale.format_string('%.f',x,True))
-        
-        
 
     def header(self):
         """
@@ -340,14 +352,16 @@ class Report_Generator(FPDF):
         self.set_font('Arial', '', 8.5)
         self.cell(0, 5, f'{self.supervisor_info}', 0, 1, align='R')
 
-
-
         self.cell(0,5, f'Del {datetime.strftime(datetime.fromisoformat(self.start_date), "%d/%m/%Y %H:%M:%S")} al {datetime.strftime(datetime.fromisoformat(self.end_date), "%d/%m/%Y %H:%M:%S")}',align='R', ln=1)
 
         self.set_font('Arial', 'B', 8.5)
-        self.cell(203 - self.get_string_width(f'Estado: Todos'),5, 'Estado:  ',align='R')
+        state_text = 'Todos' if self.state_name is None or not isinstance(self.state_name, str) else self.state_name
+        estado_text = f'Estado:  {state_text}'
+        estado_text_width = self.get_string_width('Estado:  ') + self.get_string_width(state_text)
+
+        self.cell(203 - estado_text_width, 5, 'Estado:  ', align='R')
         self.set_font('Arial', '', 8.5)
-        self.cell(0, 5, f' Todos', 0, 1, align='R')
+        self.cell(0, 5, state_text, 0, 1, align='R')
 
         self.set_font('Arial', 'B', 8.5)
         self.cell(203 - self.get_string_width(f'Peaje:   Todos'),5, 'Peaje:  ',align='R')
@@ -1625,8 +1639,6 @@ class Report_Generator(FPDF):
         metodos_pago_information = Payments.get_payment_type(self.start_date, self.end_date)
         metodos_pago_information
 
-        
-
         metodos_pago_information[3]["pg"] = {
                                                 "name":"Pago Directo Bluetooth",
                                                 "amount":self.pago_directo_info[1],
@@ -1956,12 +1968,12 @@ class Report_Generator(FPDF):
 
         self.ln(20)
     
-    def general_info(self):
+    def general_info(self, report_data):
         """
         Genera y formatea la sección de información general del reporte.
         """
-        # Obtenemos los datos directamente desde el backend
-        json_data = self.fetch_data_from_backend()
+        # Obtenemos los datos por parámetro
+        json_data = report_data
 
         # Verificamos si la respuesta es válida
         if not json_data:
@@ -2012,17 +2024,14 @@ class Report_Generator(FPDF):
 
         # Resetear el formato de texto al predeterminado
         self.set_font('Arial', '', 12)
-
-
-
-
-            
-    def general_rates_by_date(self):
+ 
+    def general_rates_by_date(self, report_data):
         """
         Generates a detailed report of access and income by date.
         """
-        # Obtener datos desde el backend
-        json_data = self.fetch_data_from_backend()
+        # Obtener datos por parámetros
+        json_data = report_data
+
         if not json_data:
             print("No se pudo obtener los datos del backend. No se generará el PDF.")
             return
@@ -2122,15 +2131,14 @@ class Report_Generator(FPDF):
 
                 self.cell(col_width, line_height, datum, border=0, align='C', fill=True)
             self.ln(line_height)
-     
 
-
-    def general_rates_by_vehicle(self):
+    def general_rates_by_vehicle(self, report_data):
         """
         Generates a detailed report of vehicle rates.
         """
-        # Obtener datos desde el backend
-        json_data = self.fetch_data_from_backend()
+        # Obtener datos por parámetros
+        json_data = report_data
+
         if not json_data:
             print("No se pudo obtener los datos del backend. No se generará el PDF.")
             return
@@ -2232,7 +2240,7 @@ class Report_Generator(FPDF):
                     self.cell(col_width_others, line_height, datum, border=0, align='C', fill=True)
             self.ln(line_height)
 
-    def general_rates_by_vehicle_2(self):
+    def general_rates_by_vehicle_2(self, report_data):
         """
         Generates a detailed report of vehicle rates with charts.
         """
@@ -2250,8 +2258,8 @@ class Report_Generator(FPDF):
 
         delta_days = (end_date_dt - start_date_dt).days
         
-
-        json_data = self.fetch_data_from_backend()
+        json_data = report_data
+        
         if not json_data:
             print("No se pudo obtener los datos del backend. No se generará el PDF.")
             return
@@ -2462,18 +2470,16 @@ class Report_Generator(FPDF):
         except Exception as e:
             print(f"Error procesando los datos: {e}")
 
-
-
-
-    def general_rates_by_payment_types(self):
+    def general_rates_by_payment_types(self, report_data):
         """
         Generates a detailed report of payment methods and their respective rates.
         """
         # Título del reporte
         subtitle = "Resumen de Métodos de Pago General"
 
-        # Obtener datos desde el backend
-        json_data = self.fetch_data_from_backend()
+        # Obtener datos por parámetros
+        json_data = report_data
+        
         if not json_data:
             print("No se pudo obtener los datos del backend. No se generará el PDF.")
             return
@@ -2590,13 +2596,13 @@ class Report_Generator(FPDF):
                 self.cell(col_width, line_height, datum, border=0, align='C', fill=True)
             self.ln(line_height)
 
-
-    def general_rates_by_payments_types_2(self):
+    def general_rates_by_payments_types_2(self, report_data):
         """
         Generates a detailed report of payment methods and their respective rates.
         """
-        # Obtener datos desde el backend
-        json_data = self.fetch_data_from_backend()
+        # Obtener datos por parámetros
+        json_data = report_data
+        
         if not json_data:
             print("No se pudo obtener los datos del backend. No se generará el PDF.")
             return
@@ -2848,8 +2854,10 @@ class Report_Generator(FPDF):
 
             os.remove("temp_img_chart_collected_per_payments.png")
             self.ln(10)
+        
+        except Exception as e:
+            return {"message": f"Error interno al generar el reporte (manejo de métodos de pago): {str(e)}"}, 500
           
-
     def general_by_currency(self):
         """
         Generates a detailed report of payments by currency.
@@ -3427,9 +3435,9 @@ class Report_Generator(FPDF):
         # Draw the cell with the subtitle text, centered, with no border
         self.cell(w, 20, subtitle, 0, 1, 'C', 0)
 
-
 @ns.route('/General-PDF-Report-Consolidate')
 class GeneralPDFReportConsolidate(Resource):
+  
     @ns.expect(generate_report_general_report_consolidated)
     def post(self):
         """
@@ -3457,15 +3465,11 @@ class GeneralPDFReportConsolidate(Resource):
             # Determinar tipo de reporte
             if general_report_type == 'Summaries':
 
-                # Instanciar la clase Report_Generator
-                api_key = Report_Generator.authenticate_to_backend()  # Obtener el API key
-                if not api_key:
-                    return {"message": "Error al obtener el API key del backend."}, 500
-
-                report_generator = Report_Generator(api_key=api_key, start_date=start_date, end_date=end_date,supervisor_info=supervisor_name,general_report_type=general_report_type,report_name=report_name)
+                pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
+                                       general_report_type=general_report_type, report_name=report_name, state=state)
 
                 # Obtener los datos del backend
-                report_data = report_generator.fetch_data_from_backend()
+                report_data = pdf.fetch_data_from_backend()
 
                 # Verificar si report_data es None o no es un diccionario
                 if not report_data:
@@ -3473,24 +3477,19 @@ class GeneralPDFReportConsolidate(Resource):
                 if not isinstance(report_data, dict):
                     return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
 
-                # Generar el reporte PDF usando los datos obtenidos
-                pdf = Report_Generator(api_key=api_key, start_date=start_date, end_date=end_date,supervisor_info=supervisor_name,general_report_type=general_report_type,report_name=report_name)
-
                 # Asegúrate de llamar a add_page() para abrir la primera página
                 pdf.add_page()
 
-                
                 # Llamar a las funciones que generan las secciones del reporte
-                pdf.general_info()
-                pdf.general_rates_by_vehicle_2()
-                pdf.general_rates_by_date()
-                pdf.general_rates_by_payments_types_2()
+                pdf.general_info(report_data)
+                pdf.general_rates_by_vehicle_2(report_data)
+                pdf.general_rates_by_date(report_data)
+                pdf.general_rates_by_payments_types_2(report_data)
 
                 # Convertir el PDF a BytesIO
                 pdf_data_str = pdf.output(dest='S').encode('latin1')
                 print(f"Tipo de datos de pdf_data_str: {type(pdf_data_str)}")
                 pdf_data = io.BytesIO(pdf_data_str)
-                print("4")
 
                 # Enviar el PDF como respuesta
                 return send_file(
@@ -3499,16 +3498,14 @@ class GeneralPDFReportConsolidate(Resource):
                     as_attachment=True,
                     download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
                 )
+                
             else:
-                # Instanciar la clase Report_Generator
-                api_key = Report_Generator.authenticate_to_backend()  # Obtener el API key
-                if not api_key:
-                    return {"message": "Error al obtener el API key del backend."}, 500
 
-                report_generator = Report_Generator(api_key=api_key, start_date=start_date, end_date=end_date,supervisor_info=supervisor_name,general_report_type=general_report_type,report_name=report_name)
+                pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
+                                       general_report_type=general_report_type, report_name=report_name, state=state)
 
                 # Obtener los datos del backend
-                report_data = report_generator.fetch_data_from_backend()
+                report_data = pdf.fetch_data_from_backend()
 
                 # Verificar si report_data es None o no es un diccionario
                 if not report_data:
@@ -3516,24 +3513,19 @@ class GeneralPDFReportConsolidate(Resource):
                 if not isinstance(report_data, dict):
                     return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
 
-                # Generar el reporte PDF usando los datos obtenidos
-                pdf = Report_Generator(api_key=api_key, start_date=start_date, end_date=end_date,supervisor_info=supervisor_name)
-
                 # Asegúrate de llamar a add_page() para abrir la primera página
                 pdf.add_page()
-
                 
                 # Llamar a las funciones que generan las secciones del reporte
-                pdf.general_info()
-                pdf.general_rates_by_date()
-                pdf.general_rates_by_vehicle()
-                pdf.general_rates_by_payment_types()
+                pdf.general_info(report_data)
+                pdf.general_rates_by_date(report_data)
+                pdf.general_rates_by_vehicle(report_data)
+                pdf.general_rates_by_payment_types(report_data)
 
                 # Convertir el PDF a BytesIO
                 pdf_data_str = pdf.output(dest='S').encode('latin1')
                 print(f"Tipo de datos de pdf_data_str: {type(pdf_data_str)}")
                 pdf_data = io.BytesIO(pdf_data_str)
-                print("4")
 
                 # Enviar el PDF como respuesta
                 return send_file(
@@ -3542,18 +3534,12 @@ class GeneralPDFReportConsolidate(Resource):
                     as_attachment=True,
                     download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
                 )
-
 
         except KeyError as ke:
             return {"message": f"Falta un campo obligatorio: {str(ke)}"}, 400
         except Exception as e:
             return {"message": f"Error interno al generar el reporte: {str(e)}"}, 500
-
-
-
-
-
-    
+   
 # Inicializar la aplicación Flask
 if __name__ == "__main__":
     app.run(debug=True, port=8000)
