@@ -2591,6 +2591,265 @@ class Report_Generator(FPDF):
             self.ln(line_height)
 
 
+    def general_rates_by_payments_types_2(self):
+        """
+        Generates a detailed report of payment methods and their respective rates.
+        """
+        # Obtener datos desde el backend
+        json_data = self.fetch_data_from_backend()
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+
+        try:
+            # Verificar si la estructura de los datos es válida
+            data = json_data.get("data", [])
+            if not data:
+                print("No se encontraron datos en la respuesta del backend.")
+                return
+
+            first_data_item = data[0]  # Obtener el primer elemento de la lista de datos
+            results = first_data_item.get("data", {}).get("results", {})
+            general_data = results.get("metodos_pago", {})
+
+            if not general_data:
+                print("No se pudieron obtener los datos de métodos de pago. No se generará el reporte.")
+                return
+
+
+            # Preparar datos para el gráfico
+            methods = []
+            amounts = []
+            transactions = []
+
+            # Iterar sobre cada moneda y extraer datos
+            for currency_key in data:
+                for method_key in data[currency_key]:
+                    method_data = data[currency_key][method_key]
+                    if isinstance(method_data, dict):  # Asegurarse de que sea un diccionario
+                        methods.append(method_data["name"])
+                        amounts.append(method_data["amount"])
+                        transactions.append(method_data["num_transactions"])
+
+            df_1 = pd.DataFrame({'Nombre': methods, 'Cantidad': amounts})
+            df_2 = pd.DataFrame({'Nombre': methods, 'Monto': amounts})
+
+            # Configuramos el tamaño de la figura
+            bio = BytesIO() 
+
+            orden_metodos_de_pago = {
+            'Efectivo Bolívares': 1,
+            'Efectivo Dólares': 2,
+            'Efectivo Pesos': 3,
+            'Pago Móvil': 4,
+            'Punto de venta Bancamiga': 5,
+            'Punto de venta BNC': 6,
+            'Punto de venta Bicentenario': 7,
+            'Ventag': 8,
+            'VenVías': 9,
+            'Cobretag': 10,
+            'Pago Directo': 11,
+            'Pago Directo Bluetooth': 12,
+            'Exonerado': 13
+            }
+            df_1['Orden'] = df_1['Nombre'].map(orden_metodos_de_pago)
+            df_1_sorted = df_1.sort_values('Orden')
+
+            df_2['Orden'] = df_2['Nombre'].map(orden_metodos_de_pago)
+            df_2_sorted = df_2.sort_values('Orden')
+
+            # Configurar el tamaño de la figura y la fuente a Arial
+            plt.rcParams.update({'font.family': 'Arial'})
+            fig, ax = plt.subplots(2, 2, figsize=(16, 12))
+
+            # Crear gráficos de barras horizontales
+            sns.barplot(
+                ax=ax[0, 0],
+                x='Cantidad', 
+                y='Nombre', 
+                data=df_1_sorted,
+                color="#FFCB26",
+                saturation=1
+            )
+            sns.barplot(
+                ax=ax[0, 1],
+                x='Monto', 
+                y='Nombre', 
+                data=df_2_sorted,
+                color="#FFCB26",
+                saturation=1
+            )
+
+            ax[0, 0].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
+            ax[0, 0].set_xticklabels(ax[0, 0].get_xticklabels(), rotation=45, ha='center')
+
+            ax[0, 1].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
+            ax[0, 1].set_xticklabels(ax[0, 1].get_xticklabels(), rotation=45, ha='center')
+
+            # Agregar títulos a cada gráfica
+            ax[0, 0].set_title('Cantidad de Pagos por Método de Pago', fontsize=15, pad=20, loc='center', weight='bold')
+            ax[0, 1].set_title('Monto de Pagos por Método de Pago', fontsize=15, pad=20, loc='center', weight='bold')
+
+            # Calcular el total para los porcentajes
+            total_cantidad = df_1_sorted['Cantidad'].sum()
+            total_monto = df_2_sorted['Monto'].sum()
+
+            # Añadir etiquetas de porcentaje encima de cada barra
+            for index, value in enumerate(df_1_sorted['Cantidad']):
+                ax[0, 0].text(df_1_sorted['Cantidad'].max() * 0.05, index, f'Total = {str(locale.format_string("%.f", value, True))}', va='center', fontsize=10, color='black', weight='bold')
+
+            for index, value in enumerate(df_2_sorted['Monto']):
+                ax[0, 1].text(df_2_sorted['Monto'].max() * 0.05, index, f'Bs. {str(locale.format_string("%.2f", value, True))}', va='center', fontsize=10, color='black', weight='bold')
+
+            # Ajustar los límites de los ejes y las etiquetas
+            ax[0, 0].set_xlim(0, df_1_sorted['Cantidad'].max() * 1.2)
+            ax[0, 1].set_xlim(0, df_2_sorted['Monto'].max() * 1.2)
+
+            # Funciones para formatear las etiquetas del eje x con separador de miles
+            def thousands_cantidad(x, pos):
+                return str(locale.format_string('%.f', x, True))
+
+            def thousands_monto(x, pos):
+                return str(locale.format_string('%.2f', x, True))
+
+            formatter_cantidad = FuncFormatter(thousands_cantidad)
+            formatter_monto = FuncFormatter(thousands_monto)
+
+            # Aplicar el formateador al eje x
+            ax[0, 0].xaxis.set_major_formatter(formatter_cantidad)
+            ax[0, 1].xaxis.set_major_formatter(formatter_monto)
+
+            # Añadir etiquetas y títulos con margen superior
+            ax[0, 0].set_xlabel('Cantidad de pagos', fontsize=16, labelpad=20, weight='bold')
+            ax[0, 0].set_ylabel('Métodos de Pago', fontsize=16, weight='bold', labelpad=20)
+            ax[0, 1].set_xlabel('Monto Recolectado', fontsize=16, labelpad=20, weight='bold')
+            ax[0, 1].set_ylabel('', fontsize=12, weight='bold')
+
+            # Eliminar etiquetas del eje y de la segunda gráfica de barras
+            ax[0, 1].set_yticklabels([])
+            ax[0, 1].tick_params(left=False)
+            ax[0, 0].grid(False)
+            ax[0, 1].grid(False)
+
+            # Añadir líneas horizontales entre las barras
+            for i in range(len(df_1_sorted)):
+                ax[0, 0].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
+                ax[0, 1].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
+
+            # Agregar gráficas de torta
+        
+            df_3 = pd.DataFrame({'Nombre': methods, 'Cantidad': amounts})
+            df_4 = pd.DataFrame({'Nombre': nombre_efectivo, 'Cantidad': cantidades_efectivo})
+            orden_currency_cash = {
+                'Bolívares': 1,
+                'Dólares': 2,
+                'Pesos': 3
+            }
+            orden_metodos_de_pago = {
+                'Efectivo Bolívares': 1,
+                'Efectivo Dólares': 2,
+                'Efectivo Pesos': 3,
+                'Pago Móvil': 4,
+                'Punto de venta Bancamiga': 5,
+                'Punto de venta BNC': 6,
+                'Punto de venta Bicentenario': 7,
+                'Ventag': 8,
+                'VenVías': 9,
+                'Cobretag': 10,
+                'Pago Directo': 11,
+                'Pago Directo Bluetooth': 12,
+                'Exonerado': 13
+            }
+            if 'Ventag' not in df_3['Nombre'].values:
+                df_3.loc[len(df_3.index)] = ['Ventag', 0] 
+            if 'VenVías' not in df_3['Nombre'].values:
+                df_3.loc[len(df_3.index)] = ['VenVías', 0] 
+            if 'Cobretag' not in df_3['Nombre'].values:
+                df_3.loc[len(df_3.index)] = ['Cobretag', 0] 
+            if 'Pago Directo Bluetooth' not in df_3['Nombre'].values:
+                df_3.loc[len(df_3.index)] = ['Pago Directo Bluetooth', 0] 
+            if 'Punto de venta Bicentenario' not in df_3['Nombre'].values:
+                df_3.loc[len(df_3.index)] = ['Punto de venta Bicentenario', 0]
+            df_3['Orden'] = df_3['Nombre'].map(orden_metodos_de_pago)
+            df_3 = df_3.sort_values('Orden')
+
+            colorPalette = [
+                            '#FFC200', 
+                            '#FF7F50', 
+                            '#FF6B81',
+                            '#66CCCC', 
+                            '#6699CC', 
+                            '#FF8C00', 
+                            '#99CCFF', 
+                            '#66FF99',
+                            '#FF99CC', 
+                            '#CC99FF', 
+                            '#FF6348', 
+                            '#FF69B4', 
+                            '#FFFF99', 
+                            '#99FF99'  
+                        ]
+            
+            df_4['Orden'] = df_4['Nombre'].map(orden_currency_cash)
+
+
+            def my_autopct(pct):
+                return f'{pct:.1f}%' if pct > 4 else ''
+
+            ax[1, 0].pie(df_3['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5))
+            ax[1, 1].pie(df_4['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5))
+
+            # Ajustar el espacio entre subplots
+            plt.subplots_adjust(wspace=0.035, hspace=0.7)
+
+            ax[1, 0].set_xlim(-0.001, 1)
+            ax[1, 1].set_xlim(-2, 1)
+
+            # Añadir título y leyenda a los gráficos de torta
+            ax[1, 0].set_title('Porcentaje de Recaudación por Método de Pago', fontsize=16, loc='left', weight='bold', x=-2.3)
+            ax[1, 0].legend(loc='center left', labels=df_3['Nombre'], bbox_to_anchor=(-3.4, 0.5))
+
+            ax[1, 1].set_title('Porcentaje de Recaudación por Tipo de Moneda', fontsize=16, loc='left', weight='bold', x=-0.1)
+            ax[1, 1].legend(loc='center left', labels=df_4['Nombre'], bbox_to_anchor=(-0.135, 0.5))
+
+            # Define el color para las líneas
+            color_lineas1 = 'white'
+            color_lineas2 = 'grey'
+
+            # Añadir líneas horizontales entre las barras
+            for i in range(len(df_1_sorted)):
+                ax[0, 0].axhline(y=i-0.5, color=color_lineas2, linewidth=0.8, linestyle='--')
+                ax[0, 1].axhline(y=i-0.5, color=color_lineas2, linewidth=0.8, linestyle='--')
+
+            # Añadir una línea al borde de la gráfica
+            for i in range(2):
+                for j in range(2):
+                    ax[i, j].spines['top'].set_color(color_lineas1)
+                    ax[i, j].spines['right'].set_color(color_lineas1)
+                    ax[i, j].spines['bottom'].set_color(color_lineas2)
+                    ax[i, j].spines['left'].set_color(color_lineas2)
+
+            # Mostramos el gráfico
+            fig.savefig(bio, format="png", bbox_inches='tight')
+            img_encoded = base64.b64encode(bio.getvalue()).decode()
+            with open("temp_img_chart_collected_per_payments.png", "wb") as f:
+                f.write(base64.b64decode(img_encoded))
+
+            self.set_font('Arial', 'B', 11.5)
+            self.set_fill_color(255,194,0)
+            self.set_text_color(40,40,40)
+            line_height = self.font_size * 2.5
+            self.cell(0, line_height, 'Gráficos de Métodos de Pago', border=0, align='L', fill=True, ln=1)
+
+            self.ln(5)
+            x_position = (216 - 180) / 2 
+
+            self.image("temp_img_chart_collected_per_payments.png", x=x_position, h=120, w=180)
+
+            os.remove("temp_img_chart_collected_per_payments.png")
+            self.ln(10)
+          
+
     def general_by_currency(self):
         """
         Generates a detailed report of payments by currency.
@@ -3225,7 +3484,7 @@ class GeneralPDFReportConsolidate(Resource):
                 pdf.general_info()
                 pdf.general_rates_by_vehicle_2()
                 pdf.general_rates_by_date()
-                pdf.general_rates_by_payment_types()
+                pdf.general_rates_by_payments_types_2()
 
                 # Convertir el PDF a BytesIO
                 pdf_data_str = pdf.output(dest='S').encode('latin1')
