@@ -1481,7 +1481,9 @@ class GeneralPDFReportConsolidate(Resource):
                     # Llamar a las funciones que generan las secciones del reporte
                     pdf.general_info(report_data)
                     pdf.linechart_payments_and_amount_by_date(report_data)
+                    pdf.add_page()
                     pdf.general_rates_by_vehicle_2(report_data)
+                    pdf.add_page()
                     pdf.general_rates_by_payments_types_2(report_data)
                     pdf.general_rates_by_date(report_data)
                     pdf.general_rates_by_vehicle(report_data)
