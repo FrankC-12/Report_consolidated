@@ -517,6 +517,24 @@ class Report_Generator(FPDF):
             results = first_data_item.get("data", {}).get("results", {})
             general_data = results.get("general_data", {})
 
+            state = json.get("state")
+            if state == "Tachira":
+                config = first_data_item.get("configs", {})
+                venpax_bs_tachira = general_data.get("total_payments_bs", 0) * 40 /100
+                venpax_usd_tachira = general_data.get("total_payments_usd", 0) * 40/100
+            else:
+                config = first_data_item.get("configs", {})
+                venpax_bs_portuguesa = general_data.get("total_payments_bs", 0) * 20 /100
+                venpax_usd_portuguesa = general_data.get("total_payments_usd", 0) * 20 /100
+
+            venpax_total_bs = venpax_bs_tachira + venpax_bs_portuguesa
+            venpax_total_usd = venpax_usd_tachira + venpax_usd_portuguesa
+
+            porcentaje_venpax = (venpax_total_bs) * 100 / general_data.get("total_payments_bs", 0)
+            porcentaje_state = 100 - porcentaje_venpax
+
+            total_state = general_data.get("total_payments_bs", 0) * porcentaje_state / 100
+
             # Extraemos los datos relevantes, con valores por defecto en caso de que falten
             total_payments_bs = general_data.get("total_payments_bs", 0)
             total_payments_usd = general_data.get("total_payments_usd", 0)
@@ -530,6 +548,8 @@ class Report_Generator(FPDF):
                     f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
                     f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
                 ),
+                (f'Gob. Total{(porcentaje_state)}', f'Venpax {(porcentaje_venpax)}'),
+                (f"Bs. {locale.format_string('%.2f', total_state , True)}", f"Bs. {locale.format_string('%.2f', total_state, True)}"),
             ]
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
@@ -1503,11 +1523,11 @@ class GeneralPDFReportConsolidate(Resource):
                 else:
                     # Llamar a las funciones que generan las secciones del reporte
                     pdf.general_info(report_data)
-                    pdf.general_rates_by_vehicle_2(report_data)
-                    pdf.general_rates_by_payments_types_2(report_data)
-                    pdf.general_rates_by_date(report_data)
-                    pdf.general_rates_by_vehicle(report_data)
-                    pdf.general_rates_by_payment_types(report_data)
+                    # pdf.general_rates_by_vehicle_2(report_data)
+                    # pdf.general_rates_by_payments_types_2(report_data)
+                    # pdf.general_rates_by_date(report_data)
+                    # pdf.general_rates_by_vehicle(report_data)
+                    # pdf.general_rates_by_payment_types(report_data)
 
                     # Convertir el PDF a BytesIO
                     pdf_data_str = pdf.output(dest='S').encode('latin1')
