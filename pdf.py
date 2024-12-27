@@ -112,7 +112,7 @@ class Report_Generator(FPDF):
         data = {
             "start_date": self.start_date,
             "end_date": self.end_date,
-            "state": self.toll
+            "state": toll
         }
         
         
@@ -641,8 +641,38 @@ class Report_Generator(FPDF):
             ]
             else:
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
-                json_data = report_data
+                total_bs_venpax = 0
+                total_usd_venpax = 0
+                tachira = self.fetch_data_state("Tachira")
+
+                json_data = tachira
+
+                first_data_item = json_data.get("data", [])[0]
+                results = first_data_item.get("data", {}).get("results", {})
+                general_data = results.get("general_data", {})
                 
+            
+
+                total_bs_venpax_tachira = general_data.get("total_payments_bs", 0) * 40 / 100
+                total_usd_venpax_tachira = general_data.get("total_payments_usd", 0) * 40 / 100
+
+
+                portuguesa = self.fetch_data_state("Portuguesa")
+                json_data = portuguesa
+
+                first_data_item = json_data.get("data", [])[0]
+                results = first_data_item.get("data", {}).get("results", {})
+                general_data = results.get("general_data", {})
+                
+            
+
+                total_bs_venpax_portuguesa = general_data.get("total_payments_bs", 0) * 40 / 100
+                total_usd_venpax_portuguesa = general_data.get("total_payments_usd", 0) * 40 / 100
+
+                json_data = report_data
+                first_data_item = json_data.get("data", [])[0]
+                results = first_data_item.get("data", {}).get("results", {})
+                general_data = results.get("general_data", {})
 
                 first_data_item = json_data.get("data", [])[0]
                 results = first_data_item.get("data", {}).get("results", {})
@@ -652,20 +682,25 @@ class Report_Generator(FPDF):
                 total_payments_usd = general_data.get("total_payments_usd", 0)
                 vehicles = general_data.get("vehicles", 0)
 
+
                 finals = [
                 ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
                 (
                     f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
                     f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
                     f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
+                ),
+                ('Venpax Est. Táchira', 'Venpax Est. Portuguesa'),
+                (
+                    f"Bs.{locale.format_string('%.2f', total_bs_venpax_tachira, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"Bs.{locale.format_string('%.2f', total_bs_venpax_portuguesa, grouping=True)}",   # Separador de miles y 2 decimales
+                ),
+                (
+                    f"${locale.format_string('%.2f', total_usd_venpax_tachira, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"${locale.format_string('%.2f', total_usd_venpax_portuguesa, grouping=True)}",
                 )
+                
                 ]
-
-
-
-
-
-            
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
             return
@@ -1603,6 +1638,7 @@ class GeneralPDFReportConsolidate(Resource):
 
                 # Obtener los datos del backend
                 report_data = pdf.fetch_data_from_backend()
+                
 
                 # Verificar si report_data es None o no es un diccionario
                 if not report_data:
@@ -1642,11 +1678,11 @@ class GeneralPDFReportConsolidate(Resource):
                 else:
                     # Llamar a las funciones que generan las secciones del reporte
                     pdf.general_info(report_data)
-                    pdf.general_rates_by_vehicle_2(report_data)
-                    pdf.general_rates_by_payments_types_2(report_data)
-                    pdf.general_rates_by_date(report_data)
-                    pdf.general_rates_by_vehicle(report_data)
-                    pdf.general_rates_by_payment_types(report_data)
+                    # pdf.general_rates_by_vehicle_2(report_data)
+                    # pdf.general_rates_by_payments_types_2(report_data)
+                    # pdf.general_rates_by_date(report_data)
+                    # pdf.general_rates_by_vehicle(report_data)
+                    # pdf.general_rates_by_payment_types(report_data)
 
                     # Convertir el PDF a BytesIO
                     pdf_data_str = pdf.output(dest='S').encode('latin1')
