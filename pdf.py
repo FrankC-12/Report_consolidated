@@ -270,6 +270,7 @@ class Report_Generator(FPDF):
         self.set_font('Arial', '', 8.5)
         self.cell(0, 5, f' {datetime.strftime(datetime.now(venezuelan_hour), "%d/%m/%Y %H:%M:%S")}', 0, 1, align='R')
 
+
         self.set_font('Arial', 'B', 8.5)
         self.cell(213 - self.get_string_width(f'Solicitado por: {self.supervisor_info}'),5, 'Solicitado por: ',align='R')
         self.set_font('Arial', '', 8.5)
@@ -277,19 +278,16 @@ class Report_Generator(FPDF):
 
         self.cell(0,5, f'Del {datetime.strftime(datetime.fromisoformat(self.start_date), "%d/%m/%Y %H:%M:%S")} al {datetime.strftime(datetime.fromisoformat(self.end_date), "%d/%m/%Y %H:%M:%S")}',align='R', ln=1)
 
-        self.set_font('Arial', 'B', 8.5)
-        state_text = 'Todos' if self.state_name is None or not isinstance(self.state_name, str) else self.state_name
-        estado_text = f'Estado:  {state_text}'
-        estado_text_width = self.get_string_width('Estado:  ') + self.get_string_width(state_text)
-
-        self.cell(203 - estado_text_width, 5, 'Estado:  ', align='R')
-        self.set_font('Arial', '', 8.5)
-        self.cell(0, 5, state_text, 0, 1, align='R')
-
-        self.set_font('Arial', 'B', 8.5)
-        self.cell(203 - self.get_string_width(f'Peaje:   Todos'),5, 'Peaje:  ',align='R')
-        self.set_font('Arial', '', 8.5)
-        self.cell(0, 5, f' Todos', 0, 1, align='R')
+        if self.toll is not None:
+            self.set_font('Arial', 'B', 8.5)
+            self.cell(203 - self.get_string_width(f'Estado: {self.toll}'),5, 'Estado:  ',align='R')
+            self.set_font('Arial', '', 8.5)
+            self.cell(0, 5, f' {self.toll}', 0, 1, align='R')
+        else:
+            self.set_font('Arial', 'B', 8.5)
+            self.cell(203 - self.get_string_width(f'Estado: Todos'),5, 'Estado:  ',align='R')
+            self.set_font('Arial', '', 8.5)
+            self.cell(0, 5, f' Todos', 0, 1, align='R')
 
         self.line(10, 48, 200, 48)
         self.ln(5)
@@ -585,7 +583,7 @@ class Report_Generator(FPDF):
                     f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
                     f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
                     f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
-                ), ('FNT (10%)', 'Gob. Estado Táchira (50%)', 'Venpax Táchira (40%)'),
+                ), ('Fondo Nacional del T (10%)', 'Gob. Estado Táchira (50%)', 'Venpax Táchira (40%)'),
                 (
                     f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",  # Separador de miles y 2 decimales
                     f"Bs. {locale.format_string('%.2f', total_tachira_bs, grouping=True)}",   # Separador de miles y 2 decimales
@@ -642,19 +640,66 @@ class Report_Generator(FPDF):
                                 
             else:
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
-                print("Entro aqui")
-                self.fetch_data_state("Tachira")
+                total_bs_venpax = 0
+                total_usd_venpax = 0
+                tachira = self.fetch_data_state("Tachira")
+
+                json_data = tachira
+
+                first_data_item = json_data.get("data", [])[0]
+                results = first_data_item.get("data", {}).get("results", {})
+                general_data = results.get("general_data", {})
+                
+            
+
+                total_bs_venpax_tachira = general_data.get("total_payments_bs", 0) * 40 / 100
+                total_usd_venpax_tachira = general_data.get("total_payments_usd", 0) * 40 / 100
+
+
+                portuguesa = self.fetch_data_state("Portuguesa")
+                json_data = portuguesa
+
+                first_data_item = json_data.get("data", [])[0]
+                results = first_data_item.get("data", {}).get("results", {})
+                general_data = results.get("general_data", {})
+                
+            
+
+                total_bs_venpax_portuguesa = general_data.get("total_payments_bs", 0) * 40 / 100
+                total_usd_venpax_portuguesa = general_data.get("total_payments_usd", 0) * 40 / 100
+
                 json_data = report_data
+                first_data_item = json_data.get("data", [])[0]
+                results = first_data_item.get("data", {}).get("results", {})
+                general_data = results.get("general_data", {})
 
                 first_data_item = json_data.get("data", [])[0]
                 results = first_data_item.get("data", {}).get("results", {})
                 general_data = results.get("general_data", {})
                 
                 total_payments_bs = general_data.get("total_payments_bs", 0)
-                print(total_payments_bs)
                 total_payments_usd = general_data.get("total_payments_usd", 0)
                 vehicles = general_data.get("vehicles", 0)
-            
+
+
+                finals = [
+                ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
+                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
+                ),
+                ('Venpax Est. Táchira', 'Venpax Est. Portuguesa'),
+                (
+                    f"Bs.{locale.format_string('%.2f', total_bs_venpax_tachira, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"Bs.{locale.format_string('%.2f', total_bs_venpax_portuguesa, grouping=True)}",   # Separador de miles y 2 decimales
+                ),
+                (
+                    f"${locale.format_string('%.2f', total_usd_venpax_tachira, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"${locale.format_string('%.2f', total_usd_venpax_portuguesa, grouping=True)}",
+                )
+                
+                ]
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
             return
@@ -1590,6 +1635,7 @@ class GeneralPDFReportConsolidate(Resource):
 
                 # Obtener los datos del backend
                 report_data = pdf.fetch_data_from_backend()
+                
 
                 # Verificar si report_data es None o no es un diccionario
                 if not report_data:
