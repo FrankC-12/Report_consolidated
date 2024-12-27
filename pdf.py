@@ -46,7 +46,7 @@ venezuelan_hour = pytz.timezone('America/Caracas')
 
 class Report_Generator(FPDF):
        
-    def __init__(self, start_date, end_date,supervisor_info,general_report_type, report_name, state):
+    def __init__(self, start_date, end_date,supervisor_info,general_report_type, report_name, state,toll):
         """
         Initializes the report object with the given parameters.
 
@@ -95,10 +95,51 @@ class Report_Generator(FPDF):
         self.supervisor_info = supervisor_info
         self.state = state
         self.state_name = state
-
+        self.toll = toll
         self.report_name = report_name
         self.general_report_type = general_report_type 
     
+
+    def fetch_data_state(self,toll):
+        """
+        Realiza una solicitud al backend y retorna el JSON de respuesta.
+
+        Returns:
+            dict: El JSON de respuesta si la solicitud fue exitosa, None si no lo fue.
+        """
+        url = "http://127.0.0.1:3001/v1/consolidatedReport"
+
+        data = {
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "state": self.toll
+        }
+        
+        
+        apikey = self.authenticate_to_backend()
+        
+        if not apikey:
+            return {"message": "Error al obtener el API key del backend."}, 500
+        
+        headers = {
+            "X-API-Key": apikey
+        }
+
+        try:
+            response = requests.post(url, json=data, headers=headers)
+
+            if response.status_code == 200:
+                print("Datos obtenidos exitosamente del backend (fetch from backend).")
+                return response.json()
+            else:
+                print(f"Error al hacer el llamado: {response.status_code}")
+                print("Mensaje de error:", response.json())
+                return None
+        except requests.exceptions.RequestException as e:
+            print(f"Error en la solicitud al backend: {e}")
+            return None
+        
+
     def fetch_data_from_backend(self):
         """
         Realiza una solicitud al backend y retorna el JSON de respuesta.
@@ -108,11 +149,11 @@ class Report_Generator(FPDF):
         """
         url = "http://127.0.0.1:3001/v1/consolidatedReport"
 
-        if self.state:
+        if self.toll:
             data = {
                 "start_date": self.start_date,
                 "end_date": self.end_date,
-                "state": self.state
+                "state": self.toll
             }
         else:
             data = {
@@ -513,44 +554,112 @@ class Report_Generator(FPDF):
         # Procesar los datos obtenidos
         try:
             # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
-            first_data_item = json_data.get("data", [])[0]  # Obtener el primer elemento de la lista "data"
-            results = first_data_item.get("data", {}).get("results", {})
-            general_data = results.get("general_data", {})
+            
 
-            state = json.get("state")
-            if state == "Tachira":
-                config = first_data_item.get("configs", {})
-                venpax_bs_tachira = general_data.get("total_payments_bs", 0) * 40 /100
-                venpax_usd_tachira = general_data.get("total_payments_usd", 0) * 40/100
-            else:
-                config = first_data_item.get("configs", {})
-                venpax_bs_portuguesa = general_data.get("total_payments_bs", 0) * 20 /100
-                venpax_usd_portuguesa = general_data.get("total_payments_usd", 0) * 20 /100
+            print(self.toll)
 
-            venpax_total_bs = venpax_bs_tachira + venpax_bs_portuguesa
-            venpax_total_usd = venpax_usd_tachira + venpax_usd_portuguesa
+            if self.toll == "Tachira":
+                # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+                first_data_item = json_data.get("data", [])[0]
+                results = first_data_item.get("data", {}).get("results", {})
+                general_data = results.get("general_data", {})
 
-            porcentaje_venpax = (venpax_total_bs) * 100 / general_data.get("total_payments_bs", 0)
-            porcentaje_state = 100 - porcentaje_venpax
+                total_payments_bs = general_data.get("total_payments_bs", 0)
+                total_payments_usd = general_data.get("total_payments_usd", 0)
+                vehicles = general_data.get("vehicles", 0)
 
-            total_state = general_data.get("total_payments_bs", 0) * porcentaje_state / 100
 
-            # Extraemos los datos relevantes, con valores por defecto en caso de que falten
-            total_payments_bs = general_data.get("total_payments_bs", 0)
-            total_payments_usd = general_data.get("total_payments_usd", 0)
-            vehicles = general_data.get("vehicles", 0)
+                #Fondo nacional del transporte es el 10%
+                total_fn_bs = total_payments_bs * 10 / 100
+                total_fn_usd = total_payments_usd * 10 / 100
 
-            # Formateamos los datos finales para mostrarlos en el reporte
-            finals = [
+                #Gobernacion Tachira es el 50%
+                total_tachira_bs = total_payments_bs * 50 / 100
+                total_tachira_usd = total_payments_usd * 50 / 100
+
+                #Total venpax es el 40%
+                venpax_bs = total_payments_bs * 40 / 100
+                venpax_usd = total_payments_usd * 40 / 100
+
+                finals = [
                 ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
                 (
                     f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
                     f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
                     f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
+                ), ('FNT (10%)', 'Gob. Estado Táchira (50%)', 'Venpax Táchira (40%)'),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"Bs. {locale.format_string('%.2f', total_tachira_bs, grouping=True)}",   # Separador de miles y 2 decimales
+                    f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"               # Separador de miles sin decimales
                 ),
-                (f'Gob. Total{(porcentaje_state)}', f'Venpax {(porcentaje_venpax)}'),
-                (f"Bs. {locale.format_string('%.2f', total_state , True)}", f"Bs. {locale.format_string('%.2f', total_state, True)}"),
+                (
+                    f"${locale.format_string('%.2f', total_fn_usd, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"${locale.format_string('%.2f', total_tachira_usd, grouping=True)}",
+                    f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
+                )
             ]
+            elif self.toll == "Portuguesa":
+                # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+                first_data_item = json_data.get("data", [])[0]
+                results = first_data_item.get("data", {}).get("results", {})
+                general_data = results.get("general_data", {})
+                
+                total_payments_bs = general_data.get("total_payments_bs", 0)
+                total_payments_usd = general_data.get("total_payments_usd", 0)
+                vehicles = general_data.get("vehicles", 0)
+
+                
+
+                #Fondo nacional del transporte es el 0%
+                total_fn_bs = 0
+                total_fn_usd = 0
+
+                #Gobernacion Portuguesa es el 60%
+                total_portuguesa_bs = total_payments_bs * 60 / 100
+                total_portuguesa_usd = total_payments_usd * 60 / 100
+
+                #Total venpax es el 40%
+                venpax_bs = total_payments_bs * 40 / 100
+                venpax_usd = total_payments_usd * 40 / 100
+
+                finals = [
+                ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
+                (
+                    f"Bs.{locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"${locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
+                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
+                ), ('Fondo Nacional del T. (0%)', 'Gob. Estado Portuguesa (60%)', 'Venpax Táchira (40%)'),
+                (
+                    f"Bs.{locale.format_string('%.2f', total_fn_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"Bs.{locale.format_string('%.2f', total_portuguesa_bs, grouping=True)}",   # Separador de miles y 2 decimales
+                    f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"               # Separador de miles sin decimales               # Separador de miles sin decimales
+                ),
+                (
+                    f"${locale.format_string('%.2f', total_fn_usd, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"${locale.format_string('%.2f', total_portuguesa_usd, grouping=True)}",
+                    f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
+                )
+            ]
+            else:
+                # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+                print("Entro aqui")
+                self.fetch_data_state("Tachira")
+                json_data = report_data
+                
+
+                first_data_item = json_data.get("data", [])[0]
+                results = first_data_item.get("data", {}).get("results", {})
+                general_data = results.get("general_data", {})
+                
+                total_payments_bs = general_data.get("total_payments_bs", 0)
+                print(total_payments_bs)
+                total_payments_usd = general_data.get("total_payments_usd", 0)
+                vehicles = general_data.get("vehicles", 0)
+
+
+
+            
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
             return
@@ -558,19 +667,23 @@ class Report_Generator(FPDF):
         # Formatear los datos y añadirlos al PDF
         for j, row in enumerate(finals):
             for datum in row:
-                if j == 0:  # Primera fila: títulos
-                    self.set_font('Arial', 'B', 13)
+                if j == 0 or j == 2:
+                    self.set_font('Arial', 'B', 10)
                     self.set_fill_color(255, 194, 0)
                     self.set_text_color(40, 40, 40)
-                elif j == 1:  # Segunda fila: datos
+                elif j == 1 or j == 3:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                elif j == 4 or 6:
                     self.set_font('Arial', 'B', 12)
                     self.set_fill_color(255, 255, 255)
                     self.set_text_color(40, 40, 40)
 
-                # Tamaño de la celda y contenido
+                # Set the cell size and add the data to the report
+                # The cell size is calculated based on the number of columns in the row
                 self.cell((self.w - 20) / len(row), 11, datum, 0, 0, 'C', fill=True)
-
-            self.ln(11)  # Salto de línea tras cada fila
+            self.ln(11)
 
         # Resetear el formato de texto al predeterminado
         self.set_font('Arial', '', 12)
@@ -1480,7 +1593,7 @@ class GeneralPDFReportConsolidate(Resource):
             if general_report_type == 'Complete':
 
                 pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
-                                       general_report_type=general_report_type, report_name=report_name, state=state)
+                                       general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
 
                 # Obtener los datos del backend
                 report_data = pdf.fetch_data_from_backend()
@@ -1545,7 +1658,7 @@ class GeneralPDFReportConsolidate(Resource):
             else:
 
                 pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
-                                       general_report_type=general_report_type, report_name=report_name, state=state)
+                                       general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
 
                 # Obtener los datos del backend
                 report_data = pdf.fetch_data_from_backend()
