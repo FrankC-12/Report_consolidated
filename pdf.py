@@ -99,8 +99,7 @@ class Report_Generator(FPDF):
         self.report_name = report_name
         self.general_report_type = general_report_type 
     
-
-    def fetch_data_state(self,toll):
+    def fetch_data_state(self, toll):
         """
         Realiza una solicitud al backend y retorna el JSON de respuesta.
 
@@ -112,7 +111,7 @@ class Report_Generator(FPDF):
         data = {
             "start_date": self.start_date,
             "end_date": self.end_date,
-            "state": self.toll
+            "state": toll
         }
         
         
@@ -130,6 +129,7 @@ class Report_Generator(FPDF):
 
             if response.status_code == 200:
                 print("Datos obtenidos exitosamente del backend (fetch from backend).")
+                print(response.json())
                 return response.json()
             else:
                 print(f"Error al hacer el llamado: {response.status_code}")
@@ -139,7 +139,6 @@ class Report_Generator(FPDF):
             print(f"Error en la solicitud al backend: {e}")
             return None
         
-
     def fetch_data_from_backend(self):
         """
         Realiza una solicitud al backend y retorna el JSON de respuesta.
@@ -554,11 +553,11 @@ class Report_Generator(FPDF):
         # Procesar los datos obtenidos
         try:
             # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
-            
 
             print(self.toll)
 
             if self.toll == "Tachira":
+              
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
                 first_data_item = json_data.get("data", [])[0]
                 results = first_data_item.get("data", {}).get("results", {})
@@ -567,7 +566,6 @@ class Report_Generator(FPDF):
                 total_payments_bs = general_data.get("total_payments_bs", 0)
                 total_payments_usd = general_data.get("total_payments_usd", 0)
                 vehicles = general_data.get("vehicles", 0)
-
 
                 #Fondo nacional del transporte es el 10%
                 total_fn_bs = total_payments_bs * 10 / 100
@@ -599,7 +597,9 @@ class Report_Generator(FPDF):
                     f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
                 )
             ]
+            
             elif self.toll == "Portuguesa":
+              
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
                 first_data_item = json_data.get("data", [])[0]
                 results = first_data_item.get("data", {}).get("results", {})
@@ -608,8 +608,6 @@ class Report_Generator(FPDF):
                 total_payments_bs = general_data.get("total_payments_bs", 0)
                 total_payments_usd = general_data.get("total_payments_usd", 0)
                 vehicles = general_data.get("vehicles", 0)
-
-                
 
                 #Fondo nacional del transporte es el 0%
                 total_fn_bs = 0
@@ -641,12 +639,12 @@ class Report_Generator(FPDF):
                     f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
                 )
             ]
+                                
             else:
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
                 print("Entro aqui")
                 self.fetch_data_state("Tachira")
                 json_data = report_data
-                
 
                 first_data_item = json_data.get("data", [])[0]
                 results = first_data_item.get("data", {}).get("results", {})
@@ -656,9 +654,6 @@ class Report_Generator(FPDF):
                 print(total_payments_bs)
                 total_payments_usd = general_data.get("total_payments_usd", 0)
                 vehicles = general_data.get("vehicles", 0)
-
-
-
             
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
@@ -1531,8 +1526,6 @@ class Report_Generator(FPDF):
         
         except Exception as e:
             return {"message": f"Error interno al generar el reporte (manejo de métodos de pago): {str(e)}"}, 500
-          
-     
 
     def subtitle_centered(self, subtitle):
         """
