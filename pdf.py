@@ -116,7 +116,7 @@ class Report_Generator(FPDF):
         }
         
         
-        apikey = self.authenticate_to_backend()
+        apikey = "Nvam9tkrV2agWHjXdsdTYvYoMDg2dnUQxZC5wRJMkV5UkmF4fHNHvXfoiTsQejwk7wgj5PVo3DoS"
         
         if not apikey:
             return {"message": "Error al obtener el API key del backend."}, 500
@@ -161,7 +161,7 @@ class Report_Generator(FPDF):
                 "end_date": self.end_date
             }
         
-        apikey = self.authenticate_to_backend()
+        apikey = "Nvam9tkrV2agWHjXdsdTYvYoMDg2dnUQxZC5wRJMkV5UkmF4fHNHvXfoiTsQejwk7wgj5PVo3DoS"
         
         if not apikey:
             return {"message": "Error al obtener el API key del backend."}, 500
@@ -184,38 +184,6 @@ class Report_Generator(FPDF):
             print(f"Error en la solicitud al backend: {e}")
             return None
     
-    @staticmethod
-    def authenticate_to_backend():
-        """
-        Realiza la autenticación al backend y devuelve el JSON generado.
-
-        Returns:
-            dict: El JSON de respuesta si la solicitud fue exitosa, None si no lo fue.
-        """
-        url = "http://127.0.0.1:3001/v1/login"
-        data = {
-            "username": "luisIntelcon",
-            "password": "123456"
-        }
-        
-        try:
-            response = requests.post(url, json=data)
-
-            if response.status_code == 200:
-                print("Datos obtenidos exitosamente del backend (auth).")
-                json_response = response.json()
-                return json_response.get("apiKey", {})
-            else:
-                print(f"Error al hacer el llamado: {response.status_code}")
-                print("Mensaje de error:", response.json())
-                return None
-        except requests.exceptions.RequestException as e:
-            print(f"Error en la solicitud al backend: {e}")
-            return None
-
-    
-
-          
         def format_dot_comma(x, pos):
             """
             Formats numbers with dots and commas.
@@ -549,16 +517,15 @@ class Report_Generator(FPDF):
             print("No se pudo obtener los datos del backend. No se generará el PDF.")
             return
 
+        
         # Procesar los datos obtenidos
         try:
             # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
             
-
-            print(self.toll)
-
             if self.toll == "Tachira":
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
                 first_data_item = json_data.get("data", [])[0]
+
                 results = first_data_item.get("data", {}).get("results", {})
                 general_data = results.get("general_data", {})
 
@@ -566,18 +533,24 @@ class Report_Generator(FPDF):
                 total_payments_usd = general_data.get("total_payments_usd", 0)
                 vehicles = general_data.get("vehicles", 0)
 
+                #Datos de los porcentajes extraidos de los configs
+                configs_tachira = first_data_item.get("config", {})
+                fnt_percentage = configs_tachira.get("fnt_percentage", 0)
+                tachira_percentage = configs_tachira.get("gob_percentage", 0)
+                venpax_percentage_tachira = configs_tachira.get("venpax_percentage", 0)
+
 
                 #Fondo nacional del transporte es el 10%
-                total_fn_bs = total_payments_bs * 10 / 100
-                total_fn_usd = total_payments_usd * 10 / 100
+                total_fn_bs = total_payments_bs * fnt_percentage / 100
+                total_fn_usd = total_payments_usd * fnt_percentage / 100
 
                 #Gobernacion Tachira es el 50%
-                total_tachira_bs = total_payments_bs * 50 / 100
-                total_tachira_usd = total_payments_usd * 50 / 100
+                total_tachira_bs = total_payments_bs * tachira_percentage / 100
+                total_tachira_usd = total_payments_usd * tachira_percentage / 100
 
                 #Total venpax es el 40%
-                venpax_bs = total_payments_bs * 40 / 100
-                venpax_usd = total_payments_usd * 40 / 100
+                venpax_bs = total_payments_bs * venpax_percentage_tachira / 100
+                venpax_usd = total_payments_usd * venpax_percentage_tachira / 100
 
                 finals = [
                 ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
@@ -600,26 +573,31 @@ class Report_Generator(FPDF):
             elif self.toll == "Portuguesa":
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
                 first_data_item = json_data.get("data", [])[0]
+
                 results = first_data_item.get("data", {}).get("results", {})
                 general_data = results.get("general_data", {})
-                
+
                 total_payments_bs = general_data.get("total_payments_bs", 0)
                 total_payments_usd = general_data.get("total_payments_usd", 0)
                 vehicles = general_data.get("vehicles", 0)
 
-                
-
-                #Fondo nacional del transporte es el 0%
-                total_fn_bs = 0
-                total_fn_usd = 0
+                #Datos de los porcentajes extraidos de los configs
+                configs_portuguesa = first_data_item.get("config", {})
+                fnt_percentage = configs_portuguesa.get("fnt_percentage", 0)
+                tachira_percentage = configs_portuguesa.get("gob_percentage", 0)
+                venpax_percentage_portuguesa = configs_portuguesa.get("venpax_percentage", 0)
 
                 #Gobernacion Portuguesa es el 60%
-                total_portuguesa_bs = total_payments_bs * 60 / 100
-                total_portuguesa_usd = total_payments_usd * 60 / 100
+                total_portuguesa_bs = total_payments_bs * percentage_portuguesa / 100
+                total_portuguesa_usd = total_payments_usd * percentage_portuguesa / 100
 
                 #Total venpax es el 40%
-                venpax_bs = total_payments_bs * 40 / 100
-                venpax_usd = total_payments_usd * 40 / 100
+                venpax_bs = total_payments_bs * venpax_percentage_portuguesa / 100
+                venpax_usd = total_payments_usd * venpax_percentage_portuguesa / 100
+
+                #Fondo nacional del transporte
+                fnt_bs = total_payments_bs * fnt_percentage / 100
+                fnt_usd = total_payments_usd * fnt_percentage / 100
 
                 finals = [
                 ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
@@ -629,45 +607,45 @@ class Report_Generator(FPDF):
                     f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
                 ), ('Fondo Nacional del T. (0%)', 'Gob. Estado Portuguesa (60%)', 'Venpax Táchira (40%)'),
                 (
-                    f"Bs.{locale.format_string('%.2f', total_fn_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"Bs.{locale.format_string('%.2f', fnt_bs, grouping=True)}",  # Separador de miles y 2 decimales
                     f"Bs.{locale.format_string('%.2f', total_portuguesa_bs, grouping=True)}",   # Separador de miles y 2 decimales
                     f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"               # Separador de miles sin decimales               # Separador de miles sin decimales
                 ),
                 (
-                    f"${locale.format_string('%.2f', total_fn_usd, grouping=True)}",  # Separador de miles y 2 decimales
+                    f"${locale.format_string('%.2f', fnt_usd, grouping=True)}",  # Separador de miles y 2 decimales
                     f"${locale.format_string('%.2f', total_portuguesa_usd, grouping=True)}",
                     f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
                 )
             ]
             else:
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
-                total_bs_venpax = 0
-                total_usd_venpax = 0
-                tachira = self.fetch_data_state("Tachira")
 
-                json_data = tachira
+                #Extraemos los totales por estado en Bs y USD
+                total_state = json_data.get("total_por_estado", {})
+                total_tachira = total_state.get("Tachira", {})
+                total_portuguesa = total_state.get("Portuguesa", {})
 
-                first_data_item = json_data.get("data", [])[0]
-                results = first_data_item.get("data", {}).get("results", {})
-                general_data = results.get("general_data", {})
-                
-            
+                #Manejamos los datos para los porncetajes de los estados
+                state_configs = json_data.get("configs_por_estado", {})
 
-                total_bs_venpax_tachira = general_data.get("total_payments_bs", 0) * 40 / 100
-                total_usd_venpax_tachira = general_data.get("total_payments_usd", 0) * 40 / 100
+                #Porcentajes de Tachira
+                configs_tachira = state_configs.get("Tachira", {})
+                percentage_tachira = configs_tachira.get("gob_percentage", 0)
+                venpax_percentage_tachira = configs_tachira.get("venpax_percentage", 0)
+
+                #Porcentajes de Portuguesa
+                configs_portuguesa = state_configs.get("Portuguesa", {})
+                percentage_portuguesa = configs_portuguesa.get("gob_percentage", 0)
+                venpax_percentage_portuguesa = configs_portuguesa.get("venpax_percentage", 0)
 
 
-                portuguesa = self.fetch_data_state("Portuguesa")
-                json_data = portuguesa
+                #Calculo de lo que le toca a Venpax en Bs y USD en cada estado
+                total_bs_venpax_tachira = total_tachira.get("VES", 0) * venpax_percentage_tachira / 100
+                total_usd_venpax_tachira = total_tachira.get("USD", 0) * venpax_percentage_tachira / 100
 
-                first_data_item = json_data.get("data", [])[0]
-                results = first_data_item.get("data", {}).get("results", {})
-                general_data = results.get("general_data", {})
-                
-            
+                total_bs_venpax_portuguesa = total_portuguesa.get("VES", 0) * venpax_percentage_portuguesa / 100
+                total_usd_venpax_portuguesa = total_portuguesa.get("USD", 0) * venpax_percentage_portuguesa / 100
 
-                total_bs_venpax_portuguesa = general_data.get("total_payments_bs", 0) * 40 / 100
-                total_usd_venpax_portuguesa = general_data.get("total_payments_usd", 0) * 40 / 100
 
                 json_data = report_data
                 first_data_item = json_data.get("data", [])[0]
@@ -1208,12 +1186,16 @@ class Report_Generator(FPDF):
             total_ves_amount = 0
 
             # Orden específico de los métodos de pago
-            payment_order = [
-                "Efectivo Bolívares", "Efectivo Dólares", "Efectivo Pesos", "Pago Móvil",
-                "Punto de venta Bancamiga", "Punto de venta BNC", "Punto de venta Bicentenario",
-                "Ventag", "VenVías", "Cobretag", "Pago Directo Bluetooth", "Exonerado", "Diferencial Cambiario"
-            ]
 
+            # payment_order = [
+            #     "Efectivo Bolívares", "Efectivo Dólares", "Efectivo Pesos", "Pago Móvil",
+            #     "Punto de venta Bancamiga", "Punto de venta BNC", "Punto de venta Bicentenario",
+            #     "Ventag", "VenVías", "Cobretag", "Pago Directo Bluetooth", "Exonerado", "Diferencial Cambiario"
+            # ]
+            payment_order = [
+                "Efectivo Bolívares", "Punto de venta Bancamiga", "Punto de venta BNC", "Pago Móvil",
+                "Exonerado", "Ventag", "Punto de venta Bicentenario", "Cobretag", "VenVías", "Punto de venta Banco de Venezuela", "Pago Directo Bluetooth", "Diferencial Cambiario"
+            ]
             # Lista para almacenar los datos de la tabla
             table_data = [["Método de Pago", "N° Transacciones", "% Transacciones", "Monto Bs", "% Monto"]]
 
@@ -1226,37 +1208,32 @@ class Report_Generator(FPDF):
                             total_ves_amount += data.get("amount_pivoted", 0)
 
             # Generar filas para cada método de pago en el orden definido
-            for payment_name in payment_order:
-                found = False
-                for group_key, group in general_data.items():
-                    if isinstance(group, dict):
-                        for payment_key, data in group.items():
-                            if isinstance(data, dict) and data.get("name") == payment_name:
-                                # Obtener valores de datos
-                                amount = data.get("num_transactions", 0)
-                                total = data.get("amount_pivoted", 0)
-                                percentage_transactions = (
-                                    (amount / total_num_transactions) * 100 if total_num_transactions else 0
-                                )
-                                percentage_amount_collected = (
-                                    (total / total_ves_amount) * 100 if total_ves_amount else 0
-                                )
 
-                                # Agregar fila a la tabla
-                                table_data.append(
-                                    [
-                                        payment_name,
-                                        locale.format_string('%.0f', amount, grouping=True),
-                                        f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
-                                        locale.format_string('%.2f', total, grouping=True),
-                                        f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
-                                    ]
-                                )
-                                found = True
-                                break
-                    if found:
-                        break
 
+            keyLocal = None
+
+            for key, inner_objects in general_data.items():
+                if key == "3":
+                    for inner_key, data in inner_objects.items():
+                        if isinstance(data, dict):
+                            num_transactions = data.get("num_transactions",0)
+                            total = data.get("amount_pivoted",0)
+                            payment_name = data.get("name", "") 
+                            percentage_transactions = (
+                            (num_transactions / total_num_transactions) * 100 if total_num_transactions else 0)
+                            percentage_amount_collected = ((total / total_ves_amount) * 100 if total_ves_amount else 0)
+
+                            # Agregar fila a la tabla
+                            table_data.append(
+                                [
+                                    payment_name,
+                                    locale.format_string('%.0f', num_transactions, grouping=True),
+                                    f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
+                                    locale.format_string('%.2f', total, grouping=True),
+                                    f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
+                                ]
+                            )
+                        
             # Agregar fila de totales
             table_data.append([
                 "Totales",
@@ -1299,6 +1276,7 @@ class Report_Generator(FPDF):
 
                 self.cell(col_width, line_height, datum, border=0, align='C', fill=True)
             self.ln(line_height)
+
 
     def general_rates_by_payments_types_2(self, report_data):
         """
