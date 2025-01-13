@@ -99,7 +99,7 @@ class Report_Generator(FPDF):
         self.report_name = report_name
         self.general_report_type = general_report_type 
     
-    def fetch_data_state(self, toll):
+    def fetch_data_state(self,toll):
         """
         Realiza una solicitud al backend y retorna el JSON de respuesta.
 
@@ -129,7 +129,6 @@ class Report_Generator(FPDF):
 
             if response.status_code == 200:
                 print("Datos obtenidos exitosamente del backend (fetch from backend).")
-                print(response.json())
                 return response.json()
             else:
                 print(f"Error al hacer el llamado: {response.status_code}")
@@ -522,7 +521,6 @@ class Report_Generator(FPDF):
             # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
             
             if self.toll == "Tachira":
-              
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
                 first_data_item = json_data.get("data", [])[0]
 
@@ -570,9 +568,7 @@ class Report_Generator(FPDF):
                     f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
                 )
             ]
-            
             elif self.toll == "Portuguesa":
-              
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
                 first_data_item = json_data.get("data", [])[0]
 
@@ -619,7 +615,6 @@ class Report_Generator(FPDF):
                     f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
                 )
             ]
-                                
             else:
                 # Extraemos los datos relevantes, con valores por defecto en caso de que falten
 
@@ -1187,56 +1182,38 @@ class Report_Generator(FPDF):
             # Inicializar variables para los totales
             total_num_transactions = 0
             total_ves_amount = 0
-
-            # Orden específico de los métodos de pago
-
-            # payment_order = [
-            #     "Efectivo Bolívares", "Efectivo Dólares", "Efectivo Pesos", "Pago Móvil",
-            #     "Punto de venta Bancamiga", "Punto de venta BNC", "Punto de venta Bicentenario",
-            #     "Ventag", "VenVías", "Cobretag", "Pago Directo Bluetooth", "Exonerado", "Diferencial Cambiario"
-            # ]
-            payment_order = [
-                "Efectivo Bolívares", "Punto de venta Bancamiga", "Punto de venta BNC", "Pago Móvil",
-                "Exonerado", "Ventag", "Punto de venta Bicentenario", "Cobretag", "VenVías", "Punto de venta Banco de Venezuela", "Pago Directo Bluetooth", "Diferencial Cambiario"
-            ]
+            
             # Lista para almacenar los datos de la tabla
             table_data = [["Método de Pago", "N° Transacciones", "% Transacciones", "Monto Bs", "% Monto"]]
 
-            # Calcular totales generales
-            for group_key, group in general_data.items():
-                if isinstance(group, dict):
-                    for payment_key, data in group.items():
-                        if isinstance(data, dict):
-                            total_num_transactions += data.get("num_transactions", 0)
-                            total_ves_amount += data.get("amount_pivoted", 0)
-
             # Generar filas para cada método de pago en el orden definido
+            
+            for key, payment_methods in general_data.items():
+              for inner_key, data in payment_methods.items():
+                  if isinstance(data, dict):
+                    if data.get("amount",0) > 0:
+                        num_transactions = data.get("num_transactions",0)
+                        total = data.get("amount_pivoted",0)
+                        payment_name = data.get("name", "") 
+                        percentage_transactions = (
+                        (num_transactions / total_num_transactions) * 100 if total_num_transactions else 0)
+                        percentage_amount_collected = ((total / total_ves_amount) * 100 if total_ves_amount else 0)
 
-
-            keyLocal = None
-
-            for key, inner_objects in general_data.items():
-                if key == "3":
-                    for inner_key, data in inner_objects.items():
-                        if isinstance(data, dict):
-                            num_transactions = data.get("num_transactions",0)
-                            total = data.get("amount_pivoted",0)
-                            payment_name = data.get("name", "") 
-                            percentage_transactions = (
-                            (num_transactions / total_num_transactions) * 100 if total_num_transactions else 0)
-                            percentage_amount_collected = ((total / total_ves_amount) * 100 if total_ves_amount else 0)
-
-                            # Agregar fila a la tabla
-                            table_data.append(
-                                [
-                                    payment_name,
-                                    locale.format_string('%.0f', num_transactions, grouping=True),
-                                    f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
-                                    locale.format_string('%.2f', total, grouping=True),
-                                    f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
-                                ]
-                            )
+                        # Agregar fila a la tabla
+                        table_data.append(
+                            [
+                                payment_name,
+                                locale.format_string('%.0f', num_transactions, grouping=True),
+                                f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
+                                locale.format_string('%.2f', total, grouping=True),
+                                f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
+                            ]
+                        )
                         
+                        # Totales
+                        total_num_transactions += data.get("num_transactions", 0)
+                        total_ves_amount += data.get("amount_pivoted", 0)
+   
             # Agregar fila de totales
             table_data.append([
                 "Totales",
@@ -1279,7 +1256,6 @@ class Report_Generator(FPDF):
 
                 self.cell(col_width, line_height, datum, border=0, align='C', fill=True)
             self.ln(line_height)
-
 
     def general_rates_by_payments_types_2(self, report_data):
         """
@@ -1553,7 +1529,7 @@ class Report_Generator(FPDF):
         
         except Exception as e:
             return {"message": f"Error interno al generar el reporte (manejo de métodos de pago): {str(e)}"}, 500
-
+          
     def subtitle_centered(self, subtitle):
         """
         Centers and formats a subtitle in the report.
@@ -1617,7 +1593,6 @@ class GeneralPDFReportConsolidate(Resource):
 
                 # Obtener los datos del backend
                 report_data = pdf.fetch_data_from_backend()
-                
 
                 # Verificar si report_data es None o no es un diccionario
                 if not report_data:
@@ -1631,6 +1606,7 @@ class GeneralPDFReportConsolidate(Resource):
                 start_date = datetime.fromisoformat(start_date)
                 end_date= datetime.fromisoformat(end_date)
                 difference_days = end_date - start_date
+
                 if difference_days > timedelta(days=3):
                     # Llamar a las funciones que generan las secciones del reporte
                     pdf.general_info(report_data)

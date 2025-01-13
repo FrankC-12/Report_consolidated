@@ -2,4 +2,8 @@
 venv/
 #Archivo .env 
 .env
-
+#Otros archivos
+node_modules
+package.json
+package-lock.json
+.pylintrc
