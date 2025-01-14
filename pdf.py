@@ -181,19 +181,6 @@ class Report_Generator(FPDF):
         except requests.exceptions.RequestException as e:
             print(f"Error en la solicitud al backend: {e}")
             return None
-    
-        def format_dot_comma(x, pos):
-            """
-            Formats numbers with dots and commas.
-
-            Args:
-                x (float): The number to format.
-                pos (int): The position of the tick label.
-
-            Returns:
-                str: The formatted number as a string.
-            """
-            return str(locale.format_string('%.f',x,True))
 
     def header(self):
         """
@@ -328,8 +315,6 @@ class Report_Generator(FPDF):
 
             # Procesar las filas de datos
             for date, details in general_data.items():
-                print("Entro")
-                print(details.get("pagos"))
                 if details.get("pagos", True):
                     pagos_daily = details.get("pagos", 0)
                     amount_daily = details.get("monto", 0)
@@ -342,20 +327,17 @@ class Report_Generator(FPDF):
                 fechas.append(dt.datetime.strptime(date,'%Y-%m-%d').date())
                 pagos.append(pagos_daily)
                 amount.append(amount_daily)
-            print("Paso 1")
+            
             # Formatter for y-axis labels
             formatter = FuncFormatter(self.format_dot_comma)
-            print("Paso 2")
 
             # Create a DataFrame from the processed data
             df = pd.DataFrame({'Fecha': fechas, 'Pagos': pagos, 'Monto': amount})
             df['Fecha'] = pd.to_datetime(df['Fecha'], format='%d-%m-%Y')
-            print("Paso 3")
 
             # Calcular la diferencia en días entre la primera y última fecha
             dias_totales = (df['Fecha'].max() - df['Fecha'].min()).days
             
-            print("Paso 4")
             if dias_totales > 3:
                 
                 # Definir los límites para los bindings
@@ -519,164 +501,104 @@ class Report_Generator(FPDF):
         # Procesar los datos obtenidos
         try:
             # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
+
+            if self.toll:
+              
+              # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+              first_data_item = json_data.get("data", [])[0]
+              results = first_data_item.get("data", {}).get("results", {})
+              general_data = results.get("general_data", {})
+
+              total_payments_bs = general_data.get("total_payments_bs", 0)
+              total_payments_usd = general_data.get("total_payments_usd", 0)
+              vehicles = general_data.get("vehicles", 0)
+              
+              #Datos de los porcentajes extraidos de los configs
+              configs = first_data_item.get("config", {})
+              fnt_percentage = configs.get("fnt_percentage", 0)
+              state_percentage = configs.get("gob_percentage", 0)
+              venpax_percentage = configs.get("venpax_percentage", 0)
+              
+              #Fondo nacional del transporte
+              total_fn_bs = total_payments_bs * fnt_percentage / 100
+              total_fn_usd = total_payments_usd * fnt_percentage / 100
+              
+              #Gobernacion del estado
+              total_state_bs = total_payments_bs * state_percentage / 100
+              total_state_usd = total_payments_usd * state_percentage / 100
+              
+              #Venpax
+              venpax_bs = total_payments_bs * venpax_percentage / 100
+              venpax_usd = total_payments_usd * venpax_percentage / 100
+              
+              finals = [
+                ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
+                    f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",
+                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"
+                ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.toll} ({state_percentage}%)', f'Venpax {self.toll} ({venpax_percentage}%)'),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
+                    f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
+                    f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"
+                ),
+                (
+                    f"${locale.format_string('%.2f', total_fn_usd, grouping=True)}",
+                    f"${locale.format_string('%.2f', total_state_usd, grouping=True)}",
+                    f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
+                )
+              ]
             
-            if self.toll == "Tachira":
-                # Extraemos los datos relevantes, con valores por defecto en caso de que falten
-                first_data_item = json_data.get("data", [])[0]
-
-                results = first_data_item.get("data", {}).get("results", {})
-                general_data = results.get("general_data", {})
-
-                total_payments_bs = general_data.get("total_payments_bs", 0)
-                total_payments_usd = general_data.get("total_payments_usd", 0)
-                vehicles = general_data.get("vehicles", 0)
-
-                #Datos de los porcentajes extraidos de los configs
-                configs_tachira = first_data_item.get("config", {})
-                fnt_percentage = configs_tachira.get("fnt_percentage", 0)
-                tachira_percentage = configs_tachira.get("gob_percentage", 0)
-                venpax_percentage_tachira = configs_tachira.get("venpax_percentage", 0)
-
-
-                #Fondo nacional del transporte es el 10%
-                total_fn_bs = total_payments_bs * fnt_percentage / 100
-                total_fn_usd = total_payments_usd * fnt_percentage / 100
-
-                #Gobernacion Tachira es el 50%
-                total_tachira_bs = total_payments_bs * tachira_percentage / 100
-                total_tachira_usd = total_payments_usd * tachira_percentage / 100
-
-                #Total venpax es el 40%
-                venpax_bs = total_payments_bs * venpax_percentage_tachira / 100
-                venpax_usd = total_payments_usd * venpax_percentage_tachira / 100
-
-                finals = [
-                ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
-                (
-                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
-                    f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
-                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
-                ), ('Fondo Nacional del T (10%)', 'Gob. Estado Táchira (50%)', 'Venpax Táchira (40%)'),
-                (
-                    f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",  # Separador de miles y 2 decimales
-                    f"Bs. {locale.format_string('%.2f', total_tachira_bs, grouping=True)}",   # Separador de miles y 2 decimales
-                    f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"               # Separador de miles sin decimales
-                ),
-                (
-                    f"${locale.format_string('%.2f', total_fn_usd, grouping=True)}",  # Separador de miles y 2 decimales
-                    f"${locale.format_string('%.2f', total_tachira_usd, grouping=True)}",
-                    f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
-                )
-            ]
-            elif self.toll == "Portuguesa":
-                # Extraemos los datos relevantes, con valores por defecto en caso de que falten
-                first_data_item = json_data.get("data", [])[0]
-
-                results = first_data_item.get("data", {}).get("results", {})
-                general_data = results.get("general_data", {})
-
-                total_payments_bs = general_data.get("total_payments_bs", 0)
-                total_payments_usd = general_data.get("total_payments_usd", 0)
-                vehicles = general_data.get("vehicles", 0)
-
-                #Datos de los porcentajes extraidos de los configs
-                configs_portuguesa = first_data_item.get("config", {})
-                fnt_percentage = configs_portuguesa.get("fnt_percentage", 0)
-                tachira_percentage = configs_portuguesa.get("gob_percentage", 0)
-                venpax_percentage_portuguesa = configs_portuguesa.get("venpax_percentage", 0)
-
-                #Gobernacion Portuguesa es el 60%
-                total_portuguesa_bs = total_payments_bs * percentage_portuguesa / 100
-                total_portuguesa_usd = total_payments_usd * percentage_portuguesa / 100
-
-                #Total venpax es el 40%
-                venpax_bs = total_payments_bs * venpax_percentage_portuguesa / 100
-                venpax_usd = total_payments_usd * venpax_percentage_portuguesa / 100
-
-                #Fondo nacional del transporte
-                fnt_bs = total_payments_bs * fnt_percentage / 100
-                fnt_usd = total_payments_usd * fnt_percentage / 100
-
-                finals = [
-                ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
-                (
-                    f"Bs.{locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
-                    f"${locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
-                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
-                ), ('Fondo Nacional del T. (0%)', 'Gob. Estado Portuguesa (60%)', 'Venpax Táchira (40%)'),
-                (
-                    f"Bs.{locale.format_string('%.2f', fnt_bs, grouping=True)}",  # Separador de miles y 2 decimales
-                    f"Bs.{locale.format_string('%.2f', total_portuguesa_bs, grouping=True)}",   # Separador de miles y 2 decimales
-                    f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"               # Separador de miles sin decimales               # Separador de miles sin decimales
-                ),
-                (
-                    f"${locale.format_string('%.2f', fnt_usd, grouping=True)}",  # Separador de miles y 2 decimales
-                    f"${locale.format_string('%.2f', total_portuguesa_usd, grouping=True)}",
-                    f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
-                )
-            ]
             else:
-                # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+              
+              # Extraer totales por estado en Bs y USD
+              total_state = json_data.get("total_por_estado", {})
+              state_configs = json_data.get("configs_por_estado", {})
 
-                #Extraemos los totales por estado en Bs y USD
-                total_state = json_data.get("total_por_estado", {})
-                total_tachira = total_state.get("Tachira", {})
-                total_portuguesa = total_state.get("Portuguesa", {})
+              # Calculo total para Venpax en Bs y USD en cada estado
+              venpax_totales = {}
+              for estado, totales in total_state.items():
+                  config = state_configs.get(estado, {})
+                  venpax_percentage = config.get("venpax_percentage", 0)
+                  venpax_totales[estado] = {
+                      "total_bs_venpax": totales.get("VES", 0) * venpax_percentage / 100,
+                      "total_usd_venpax": totales.get("USD", 0) * venpax_percentage / 100
+                  }
 
-                #Manejamos los datos para los porncetajes de los estados
-                state_configs = json_data.get("configs_por_estado", {})
+              # Extraer datos generales
+              general_data = json_data["data"][0]["data"]["results"]["general_data"]
+              total_payments_bs = general_data.get("total_payments_bs", 0)
+              total_payments_usd = general_data.get("total_payments_usd", 0)
+              vehicles = general_data.get("vehicles", 0)
 
-                #Porcentajes de Tachira
-                configs_tachira = state_configs.get("Tachira", {})
-                percentage_tachira = configs_tachira.get("gob_percentage", 0)
-                venpax_percentage_tachira = configs_tachira.get("venpax_percentage", 0)
+              # Renderizar tabla de resultados dinámicamente
+              finals = [
+                  ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
+                  (
+                      f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                      f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
+                      f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
+                  )
+              ]
 
-                #Porcentajes de Portuguesa
-                configs_portuguesa = state_configs.get("Portuguesa", {})
-                percentage_portuguesa = configs_portuguesa.get("gob_percentage", 0)
-                venpax_percentage_portuguesa = configs_portuguesa.get("venpax_percentage", 0)
+              # Procesar los totales de Venpax para todos los estados
+              estados = list(venpax_totales.keys())
+              vetaesn_heads = tuple(f'Venpax Est. {estado}' for estado in estados)
+              venpax_bs_finals = tuple(
+                  f"Bs.{locale.format_string('%.2f', venpax_totales[estado]['total_bs_venpax'], grouping=True)}"
+                  for estado in estados
+              )
+              venpax_usd_finals = tuple(
+                  f"${locale.format_string('%.2f', venpax_totales[estado]['total_usd_venpax'], grouping=True)}"
+                  for estado in estados
+              )
 
-
-                #Calculo de lo que le toca a Venpax en Bs y USD en cada estado
-                total_bs_venpax_tachira = total_tachira.get("VES", 0) * venpax_percentage_tachira / 100
-                total_usd_venpax_tachira = total_tachira.get("USD", 0) * venpax_percentage_tachira / 100
-
-                total_bs_venpax_portuguesa = total_portuguesa.get("VES", 0) * venpax_percentage_portuguesa / 100
-                total_usd_venpax_portuguesa = total_portuguesa.get("USD", 0) * venpax_percentage_portuguesa / 100
-
-
-                json_data = report_data
-                first_data_item = json_data.get("data", [])[0]
-                results = first_data_item.get("data", {}).get("results", {})
-                general_data = results.get("general_data", {})
-
-                first_data_item = json_data.get("data", [])[0]
-                results = first_data_item.get("data", {}).get("results", {})
-                general_data = results.get("general_data", {})
-                
-                total_payments_bs = general_data.get("total_payments_bs", 0)
-                total_payments_usd = general_data.get("total_payments_usd", 0)
-                vehicles = general_data.get("vehicles", 0)
-
-
-                finals = [
-                ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
-                (
-                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
-                    f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
-                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
-                ),
-                ('Venpax Est. Táchira', 'Venpax Est. Portuguesa'),
-                (
-                    f"Bs.{locale.format_string('%.2f', total_bs_venpax_tachira, grouping=True)}",  # Separador de miles y 2 decimales
-                    f"Bs.{locale.format_string('%.2f', total_bs_venpax_portuguesa, grouping=True)}",   # Separador de miles y 2 decimales
-                ),
-                (
-                    f"${locale.format_string('%.2f', total_usd_venpax_tachira, grouping=True)}",  # Separador de miles y 2 decimales
-                    f"${locale.format_string('%.2f', total_usd_venpax_portuguesa, grouping=True)}",
-                )
-                
-                ]
+              # Añadir los resultados a la tabla
+              finals.append(vetaesn_heads)
+              finals.append(venpax_bs_finals)
+              finals.append(venpax_usd_finals)
+ 
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
             return
@@ -1191,7 +1113,7 @@ class Report_Generator(FPDF):
             for key, payment_methods in general_data.items():
               for inner_key, data in payment_methods.items():
                   if isinstance(data, dict):
-                    if data.get("amount",0) > 0:
+                    if data.get("amount",0) != 0:
                         num_transactions = data.get("num_transactions",0)
                         total = data.get("amount_pivoted",0)
                         payment_name = data.get("name", "") 
@@ -1402,7 +1324,7 @@ class Report_Generator(FPDF):
             ax[0, 0].set_ylabel('Métodos de Pago', fontsize=16, weight='bold', labelpad=20)
             ax[0, 1].set_xlabel('Monto Recolectado', fontsize=16, labelpad=20, weight='bold')
             ax[0, 1].set_ylabel('', fontsize=12, weight='bold')
-            print("paso por aqui")
+
             # Eliminar etiquetas del eje y de la segunda gráfica de barras
             ax[0, 1].set_yticklabels([])
             ax[0, 1].tick_params(left=False)
@@ -1471,7 +1393,6 @@ class Report_Generator(FPDF):
 
             def my_autopct(pct):
                 return f'{pct:.1f}%' if pct > 4 else ''
-            print("paso por aqui")
 
             ax[1, 0].pie(df_3['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5))
             ax[1, 1].pie(df_4['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5))
