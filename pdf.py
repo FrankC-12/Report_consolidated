@@ -558,10 +558,10 @@ class Report_Generator(FPDF):
 
               # Calculo total para Venpax en Bs y USD en cada estado
               venpax_totales = {}
-              for estado, totales in total_state.items():
-                  config = state_configs.get(estado, {})
+              for state, totales in total_state.items():
+                  config = state_configs.get(state, {})
                   venpax_percentage = config.get("venpax_percentage", 0)
-                  venpax_totales[estado] = {
+                  venpax_totales[state] = {
                       "total_bs_venpax": totales.get("VES", 0) * venpax_percentage / 100,
                       "total_usd_venpax": totales.get("USD", 0) * venpax_percentage / 100
                   }
@@ -583,15 +583,15 @@ class Report_Generator(FPDF):
               ]
 
               # Procesar los totales de Venpax para todos los estados
-              estados = list(venpax_totales.keys())
-              vetaesn_heads = tuple(f'Venpax Est. {estado}' for estado in estados)
+              states = list(venpax_totales.keys())
+              vetaesn_heads = tuple(f'Venpax Est. {state}' for state in states)
               venpax_bs_finals = tuple(
-                  f"Bs.{locale.format_string('%.2f', venpax_totales[estado]['total_bs_venpax'], grouping=True)}"
-                  for estado in estados
+                  f"Bs.{locale.format_string('%.2f', venpax_totales[state]['total_bs_venpax'], grouping=True)}"
+                  for state in states
               )
               venpax_usd_finals = tuple(
-                  f"${locale.format_string('%.2f', venpax_totales[estado]['total_usd_venpax'], grouping=True)}"
-                  for estado in estados
+                  f"${locale.format_string('%.2f', venpax_totales[state]['total_usd_venpax'], grouping=True)}"
+                  for state in states
               )
 
               # Añadir los resultados a la tabla
