@@ -1113,7 +1113,7 @@ class Report_Generator(FPDF):
             for key, payment_methods in general_data.items():
               for inner_key, data in payment_methods.items():
                   if isinstance(data, dict):
-                    if data.get("amount",0) != 0:
+                    if data.get("num_transactions",0) != 0:
                         num_transactions = data.get("num_transactions",0)
                         total = data.get("amount_pivoted",0)
                         payment_name = data.get("name", "") 
