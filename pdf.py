@@ -38,6 +38,21 @@ generate_report_general_report_consolidated = api.model('GeneralReportPayload', 
     'report_name': fields.String(required=False, description='El nombre del reporte'),
     'username': fields.String(required=False, description='El nombre de usuario del supervisor'),
 })
+
+generate_report_general_report_institutional_by_state = api.model('InstitutionalReportPayload', {
+    'start_date': fields.String(required=True, description='La fecha de inicio del reporte (formato ISO8601)'),
+    'end_date': fields.String(required=True, description='La fecha de fin del reporte (formato ISO8601)'),
+    'state': fields.String(required=False, description='El estado a filtrar en el reporte'),
+    'toll': fields.String(required=False, description='El peaje a filtrar en el reporte')
+})
+
+generate_report_general_report_institutional = api.model('InstitutionalReportPayload', {
+    'start_date': fields.String(required=True, description='La fecha de inicio del reporte (formato ISO8601)'),
+    'end_date': fields.String(required=True, description='La fecha de fin del reporte (formato ISO8601)'),
+    'state': fields.String(required=True, description='El estado a filtrar en el reporte'),
+    'toll': fields.String(required=True, description='El peaje a filtrar en el reporte')
+})
+
 ns = api.namespace("reports", description="Report Generation Endpoints")
 
 
@@ -178,6 +193,48 @@ class Report_Generator(FPDF):
                 print(f"Error al hacer el llamado: {response.status_code}")
                 print("Mensaje de error:", response.json())
                 return None
+        except requests.exceptions.RequestException as e:
+            print(f"Error en la solicitud al backend: {e}")
+            return None
+
+    def fetch_data_by_toll_from_backend(self):
+        """
+        Realiza una solicitud por peaje al backend y retorna el JSON de respuesta.
+
+        Returns:
+            dict: El JSON de respuesta si la solicitud fue exitosa, None si no lo fue.
+        """ 
+        url = "http://127.0.0.1:3001/v1/peajeInfo"
+        
+        data = {
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "state": self.state,
+            "toll": self.toll
+        }
+        
+        print(data)
+        
+        apikey = "Nvam9tkrV2agWHjXdsdTYvYoMDg2dnUQxZC5wRJMkV5UkmF4fHNHvXfoiTsQejwk7wgj5PVo3DoS"
+        
+        if not apikey:
+            return {"message": "Error al obtener el API key del backend."}, 500
+        
+        headers = {
+            "X-API-Key": apikey
+        }
+        
+        try:
+          response = requests.post(url, json=data, headers=headers)
+
+          if response.status_code == 200:
+              print("Datos obtenidos exitosamente del backend (fetch from backend).")
+              return response.json()
+          else:
+              print(f"Error al hacer el llamado: {response.status_code}")
+              print("Mensaje de error:", response.json())
+              return None
+
         except requests.exceptions.RequestException as e:
             print(f"Error en la solicitud al backend: {e}")
             return None
@@ -1479,6 +1536,150 @@ class Report_Generator(FPDF):
         # Draw the cell with the subtitle text, centered, with no border
         self.cell(w, 20, subtitle, 0, 1, 'C', 0)
 
+    def general_info_institutional_by_state(self,report_data):
+        """
+        Genera y formatea la sección de información general del reporte por estado.
+        """
+        # Obtenemos los datos por parámetro
+        json_data = report_data
+
+        # Verificamos si la respuesta es válida
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+
+        
+        # Procesar los datos obtenidos
+        try:
+            # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
+
+            if self.toll:
+              
+              # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+              first_data_item = json_data.get("data", [])[0]
+              results = first_data_item.get("data", {}).get("results", {})
+              general_data = results.get("general_data", {})
+
+              total_payments_bs = general_data.get("total_payments_bs", 0)
+              
+              
+              #Gobernacion del estado
+              total_state_bs = total_payments_bs
+              
+              finals = [
+                ('Monto Total en Bolívares'),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
+                )
+              ]
+            
+            else:
+              
+              # Extraer totales por estado en Bs y USD
+              total_state = json_data.get("total_por_estado", {})
+              
+
+              # Extraer datos generales
+              general_data = json_data["data"][0]["data"]["results"]["general_data"]
+              total_payments_bs = general_data.get("total_payments_bs", 0)
+              total_payments_usd = general_data.get("total_payments_usd", 0)
+              vehicles = general_data.get("vehicles", 0)
+
+              # Renderizar tabla de resultados dinámicamente
+              finals = [
+                  ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
+                  (
+                      f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                  )
+              ]
+
+        except (KeyError, IndexError) as e:
+            print(f"Error al procesar los datos del backend: {str(e)}")
+            return
+
+        # Formatear los datos y añadirlos al PDF
+        for j, row in enumerate(finals):
+            for datum in row:
+                if j == 0 or j == 2:
+                    self.set_font('Arial', 'B', 10)
+                    self.set_fill_color(255, 194, 0)
+                    self.set_text_color(40, 40, 40)
+                elif j == 1 or j == 3:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                elif j == 4 or 6:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+
+                # Set the cell size and add the data to the report
+                # The cell size is calculated based on the number of columns in the row
+                self.cell((self.w - 20) / len(row), 11, datum, 0, 0, 'C', fill=True)
+            self.ln(11)
+
+        # Resetear el formato de texto al predeterminado
+        self.set_font('Arial', '', 12)
+
+    def general_info_institutional(self,report_data):
+        """
+        Genera y formatea la sección de información general del reporte.
+        """
+        # Obtenemos los datos por parámetro
+        json_data = report_data
+        
+        # Verificamos si la respuesta es válida
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+          
+        try:
+          
+          # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+          first_data_item = json_data.get("data", [])[0]
+          results = first_data_item.get("data", {}).get("results", {})
+          general_data = results.get("general_data", {})
+          
+          total_payments_bs = general_data.get("total_payments_bs", 0)
+                
+          #Gobernacion del estado
+          total_state_bs = total_payments_bs
+          
+          finals = [
+            ('Monto Total en Bolívares'),
+            (
+                f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
+            )
+          ]
+          
+        except (KeyError, IndexError) as e:
+            print(f"Error al procesar los datos del backend: {str(e)}")
+            return
+          
+        # Formatear los datos y añadirlos al PDF
+        for j, row in enumerate(finals):
+            for datum in row:
+                if j == 0 or j == 2:
+                    self.set_font('Arial', 'B', 10)
+                    self.set_fill_color(255, 194, 0)
+                    self.set_text_color(40, 40, 40)
+                elif j == 1 or j == 3:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                elif j == 4 or 6:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+
+                # Set the cell size and add the data to the report
+                # The cell size is calculated based on the number of columns in the row
+                self.cell((self.w - 20) / len(row), 11, datum, 0, 0, 'C', fill=True)
+            self.ln(11)
+
+        # Resetear el formato de texto al predeterminado
+        self.set_font('Arial', '', 12)
+
 @ns.route('/General-PDF-Report-Consolidate')
 class GeneralPDFReportConsolidate(Resource):
   
@@ -1613,6 +1814,104 @@ class GeneralPDFReportConsolidate(Resource):
         except Exception as e:
             return {"message": f"Error interno al generar el reporte: {str(e)}"}, 500
    
+@ns.route('/General-PDF-Report-Institutional-by-state')
+class General_PDF_Report_Institutional_By_State(Resource):
+    @ns.expect(generate_report_general_report_institutional_by_state)
+    def post(self):
+        """ Generar el reporte para el usuario Institucional """
+        payload = api.payload
+
+        # Verificar si payload es None
+        if not payload:
+            return {"message": "El cuerpo de la solicitud está vacío o no es válido."}, 400
+
+        # Validar y obtener los parámetros
+        start_date = payload.get('start_date')
+        end_date = payload.get('end_date')
+        general_report_type = payload.get('general_report_type', 'Complete')
+        state = payload.get('state', None)
+        toll = payload.get('toll', None)
+        report_name = payload.get('report_name', 'general_report').replace(' ', '_')
+        supervisor_name = payload.get('username')
+
+        if not start_date or not end_date:
+            return {"message": "Los campos 'start_date', 'end_date' y 'username' son obligatorios."}, 400
+
+        #Genero el reporte 
+        pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
+                                       general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
+
+        # Obtener los datos del backend
+        report_data = pdf.fetch_data_from_backend()
+
+        # Verificar si report_data es None o no es un diccionario
+        if not report_data:
+            return {"message": "Error al obtener los datos del backend."}, 500
+        if not isinstance(report_data, dict):
+            return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+
+        pdf.add_page()
+        pdf.general_info_institutional(report_data)
+
+        # Convertir el PDF a BytesIO
+        pdf_data_str = pdf.output(dest='S').encode('latin1')
+        pdf_data = io.BytesIO(pdf_data_str)
+
+        # Enviar el PDF como respuesta
+        return send_file(
+            pdf_data,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+        )
+
+@ns.route('/General-PDF-Report-Institutional')
+class General_PDF_Report_Institutional(Resource):
+    @ns.expect(generate_report_general_report_institutional)
+    def post(self):
+        """ Generar el reporte por peaje para usuario institucional """
+        # Verificar si payload es None
+        payload = api.payload         
+                
+        if not payload:
+            return {"message": "El cuerpo de la solicitud está vacío o no es válido."}, 400
+          
+        # Validar y obtener los parámetros
+        start_date = payload.get('start_date')
+        end_date = payload.get('end_date')
+        state = payload.get('state')
+        toll = payload.get('toll')
+        
+        if not (start_date or end_date or state or toll):
+          return {"message": "Todos los campos son obligatorios."}, 400
+        
+        # Generar el reporte 
+        pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=None,
+            general_report_type=None, report_name=None, state=state,toll=toll)
+        
+        # Obtener los datos del backend
+        report_data = pdf.fetch_data_by_toll_from_backend()
+        
+        # Verificar si report_data es None o no es un diccionario
+        if not report_data:
+            return {"message": "Error al obtener los datos del backend."}, 500
+        if not isinstance(report_data, dict):
+            return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+          
+        pdf.add_page()
+        
+        # Convertir el PDF a BytesIO
+        pdf_data_str = pdf.output(dest='S').encode('latin1')
+        pdf_data = io.BytesIO(pdf_data_str)
+
+        # Enviar el PDF como respuesta
+        return send_file(
+            pdf_data,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+        )
+
 # Inicializar la aplicación Flask
 if __name__ == "__main__":
     app.run(debug=True, port=8000)
