@@ -3,7 +3,6 @@ import io
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
 from flask_restx import Api, Resource, fields
-from general_report_consolidate import general_info, general_rates_by_date, general_rates_by_payments, general_rates_by_vehicle
 from fpdf import FPDF
 import pandas as pd
 import matplotlib
@@ -39,6 +38,14 @@ generate_report_general_report_consolidated = api.model('GeneralReportPayload', 
     'report_name': fields.String(required=False, description='El nombre del reporte'),
     'username': fields.String(required=False, description='El nombre de usuario del supervisor'),
 })
+
+generate_report_general_report_institutional = api.model('InstitutionalReportPayload', {
+    'start_date': fields.String(required=True, description='La fecha de inicio del reporte (formato ISO8601)'),
+    'end_date': fields.String(required=True, description='La fecha de fin del reporte (formato ISO8601)'),
+    'state': fields.String(required=False, description='El estado a filtrar en el reporte'),
+    'toll': fields.String(required=False, description='El peaje a filtrar en el reporte')
+})
+
 ns = api.namespace("reports", description="Report Generation Endpoints")
 
 
@@ -47,7 +54,7 @@ venezuelan_hour = pytz.timezone('America/Caracas')
 
 class Report_Generator(FPDF):
        
-    def __init__(self, start_date, end_date,supervisor_info,general_report_type, report_name, state):
+    def __init__(self, start_date, end_date,supervisor_info,general_report_type, report_name, state,toll):
         """
         Initializes the report object with the given parameters.
 
@@ -96,11 +103,11 @@ class Report_Generator(FPDF):
         self.supervisor_info = supervisor_info
         self.state = state
         self.state_name = state
-
+        self.toll = toll
         self.report_name = report_name
         self.general_report_type = general_report_type 
     
-    def fetch_data_from_backend(self):
+    def fetch_data_state(self,toll):
         """
         Realiza una solicitud al backend y retorna el JSON de respuesta.
 
@@ -109,19 +116,14 @@ class Report_Generator(FPDF):
         """
         url = "http://127.0.0.1:3001/v1/consolidatedReport"
 
-        if self.state:
-            data = {
-                "start_date": self.start_date,
-                "end_date": self.end_date,
-                "state": self.state
-            }
-        else:
-            data = {
-                "start_date": self.start_date,
-                "end_date": self.end_date
-            }
+        data = {
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "state": toll
+        }
         
-        apikey = self.authenticate_to_backend()
+        
+        apikey = "Nvam9tkrV2agWHjXdsdTYvYoMDg2dnUQxZC5wRJMkV5UkmF4fHNHvXfoiTsQejwk7wgj5PVo3DoS"
         
         if not apikey:
             return {"message": "Error al obtener el API key del backend."}, 500
@@ -143,28 +145,43 @@ class Report_Generator(FPDF):
         except requests.exceptions.RequestException as e:
             print(f"Error en la solicitud al backend: {e}")
             return None
-    
-    @staticmethod
-    def authenticate_to_backend():
+        
+    def fetch_data_from_backend(self):
         """
-        Realiza la autenticación al backend y devuelve el JSON generado.
+        Realiza una solicitud al backend y retorna el JSON de respuesta.
 
         Returns:
             dict: El JSON de respuesta si la solicitud fue exitosa, None si no lo fue.
         """
-        url = "http://127.0.0.1:3001/v1/login"
-        data = {
-            "username": "luisIntelcon",
-            "password": "123456"
-        }
+        url = "http://127.0.0.1:3001/v1/consolidatedReport"
+
+        if self.toll:
+            data = {
+                "start_date": self.start_date,
+                "end_date": self.end_date,
+                "state": self.toll
+            }
+        else:
+            data = {
+                "start_date": self.start_date,
+                "end_date": self.end_date
+            }
         
+        apikey = "Nvam9tkrV2agWHjXdsdTYvYoMDg2dnUQxZC5wRJMkV5UkmF4fHNHvXfoiTsQejwk7wgj5PVo3DoS"
+        
+        if not apikey:
+            return {"message": "Error al obtener el API key del backend."}, 500
+        
+        headers = {
+            "X-API-Key": apikey
+        }
+
         try:
-            response = requests.post(url, json=data)
+            response = requests.post(url, json=data, headers=headers)
 
             if response.status_code == 200:
-                print("Datos obtenidos exitosamente del backend (auth).")
-                json_response = response.json()
-                return json_response.get("apiKey", {})
+                print("Datos obtenidos exitosamente del backend (fetch from backend).")
+                return response.json()
             else:
                 print(f"Error al hacer el llamado: {response.status_code}")
                 print("Mensaje de error:", response.json())
@@ -172,138 +189,6 @@ class Report_Generator(FPDF):
         except requests.exceptions.RequestException as e:
             print(f"Error en la solicitud al backend: {e}")
             return None
-
-    def general_rates_by_payment_types(self, report_data):
-        """
-        Generates a detailed report of payment methods and their respective rates.
-        """
-
-        # Obtener datos por parámetros
-        json_data = report_data
-
-        if not json_data:
-            print("No se pudo obtener los datos del backend. No se generará el PDF.")
-            return
-
-        # Procesar los datos obtenidos
-        try:
-            # Verificar si la estructura de los datos es válida
-            print("Paso por aqui")
-            data = json_data.get("data", [])
-            print("Paso por aqui")
-            
-            if not data:
-                print("No se encontraron datos en la respuesta del backend.")
-                return
-            print("Paso por aqui")
-
-            first_data_item = data[0]  # Obtener el primer item de la lista de datos
-            results = first_data_item.get("data", {}).get("results", {})
-            general_data = results.get("metodos_pago", {})
-            print("Paso por aqui")
-
-            if not general_data:
-                print("No se pudieron obtener los datos de métodos de pago. No se generará el reporte.")
-                return
-            print("Paso por aqui")
-
-            # Inicializar variables para los totales
-            total_num_transactions = 0
-            total_ves_amount = 0
-
-            # Orden específico de los métodos de pago
-            payment_order = [
-                "Efectivo Bolívares", "Efectivo Dólares", "Efectivo Pesos", "Pago Móvil",
-                "Punto de venta Bancamiga", "Punto de venta BNC", "Punto de venta Bicentenario",
-                "Ventag", "VenVías", "Cobretag", "Pago Directo Bluetooth", "Exonerado", "Diferencial Cambiario"
-            ]
-
-            # Lista para almacenar los resultados
-            table_data = [["Método de Pago", "N° Transacciones", "% Transacciones", "Monto Bs", "% Monto"]]
-            print("Paso por aqui")
-
-            # Acumular los totales y procesar datos
-            for group in general_data.values():
-                for data in group.values():
-                    total_num_transactions += data.get('num_transactions', 0)
-                    total_ves_amount += data.get("amount_pivoted", 0)
-            print("Paso por aqui")
-
-            # Generar filas respetando el orden de los métodos de pago
-            for payment_name in payment_order:
-                found = False
-                for group in general_data.values():
-                    for data in group.values():
-                        if data.get("name") == payment_name:
-                            # Agregar datos del método de pago
-                            table_data.append([
-                                payment_name,
-                                locale.format_string('%.0f', data.get("num_transactions", 0), grouping=True),
-                                f"{locale.format_string('%.2f', data.get('percentage_transactions', 0), grouping=True)}%",
-                                locale.format_string('%.2f', data.get("amount_pivoted", 0), grouping=True),
-                                f"{locale.format_string('%.2f', data.get('percentage_amount_collected', 0), grouping=True)}%",
-                            ])
-                            found = True
-                            break
-                    if found:
-                        break
-
-            # Agregar fila de totales
-            table_data.append([
-                "Totales",
-                locale.format_string('%.0f', total_num_transactions, grouping=True),
-                "",
-                locale.format_string('%.2f', total_ves_amount, grouping=True),
-                "",
-            ])
-
-        except (KeyError, IndexError) as e:
-            print(f"Error al procesar los datos del backend: {str(e)}")
-            return
-
-        # Generar el PDF
-        col_width_first_column = (self.w - 20) * 0.4
-        col_width_others = (self.w - 20) * 0.15
-        line_height = 8
-
-        print("Add page")
-
-        self.add_page()
-        self.set_font('Arial', 'B', 14)
-        self.cell(0, 10, subtitle, 0, 1, 'C')
-        self.ln(10)
-
-        for j, row in enumerate(table_data):
-            for i, datum in enumerate(row):
-                if j == 0:  # Encabezados
-                    self.set_font('Arial', 'B', 10)
-                    self.set_fill_color(200, 200, 200)
-                elif j == len(table_data) - 1:  # Totales
-                    self.set_font('Arial', 'B', 10)
-                    self.set_fill_color(220, 220, 220)
-                else:  # Filas normales
-                    self.set_font('Arial', '', 9)
-                    self.set_fill_color(255, 255, 255)
-
-                col_width = col_width_first_column if i == 0 else col_width_others
-                self.cell(col_width, line_height, datum, border=1, align='C', fill=True)
-            self.ln(line_height)
-
-        self.set_font('Arial', '', 12)
-
-          
-        def format_dot_comma(x, pos):
-            """
-            Formats numbers with dots and commas.
-
-            Args:
-                x (float): The number to format.
-                pos (int): The position of the tick label.
-
-            Returns:
-                str: The formatted number as a string.
-            """
-            return str(locale.format_string('%.f',x,True))
 
     def header(self):
         """
@@ -347,6 +232,7 @@ class Report_Generator(FPDF):
         self.set_font('Arial', '', 8.5)
         self.cell(0, 5, f' {datetime.strftime(datetime.now(venezuelan_hour), "%d/%m/%Y %H:%M:%S")}', 0, 1, align='R')
 
+
         self.set_font('Arial', 'B', 8.5)
         self.cell(213 - self.get_string_width(f'Solicitado por: {self.supervisor_info}'),5, 'Solicitado por: ',align='R')
         self.set_font('Arial', '', 8.5)
@@ -354,19 +240,16 @@ class Report_Generator(FPDF):
 
         self.cell(0,5, f'Del {datetime.strftime(datetime.fromisoformat(self.start_date), "%d/%m/%Y %H:%M:%S")} al {datetime.strftime(datetime.fromisoformat(self.end_date), "%d/%m/%Y %H:%M:%S")}',align='R', ln=1)
 
-        self.set_font('Arial', 'B', 8.5)
-        state_text = 'Todos' if self.state_name is None or not isinstance(self.state_name, str) else self.state_name
-        estado_text = f'Estado:  {state_text}'
-        estado_text_width = self.get_string_width('Estado:  ') + self.get_string_width(state_text)
-
-        self.cell(203 - estado_text_width, 5, 'Estado:  ', align='R')
-        self.set_font('Arial', '', 8.5)
-        self.cell(0, 5, state_text, 0, 1, align='R')
-
-        self.set_font('Arial', 'B', 8.5)
-        self.cell(203 - self.get_string_width(f'Peaje:   Todos'),5, 'Peaje:  ',align='R')
-        self.set_font('Arial', '', 8.5)
-        self.cell(0, 5, f' Todos', 0, 1, align='R')
+        if self.toll is not None:
+            self.set_font('Arial', 'B', 8.5)
+            self.cell(203 - self.get_string_width(f'Estado: {self.toll}'),5, 'Estado:  ',align='R')
+            self.set_font('Arial', '', 8.5)
+            self.cell(0, 5, f' {self.toll}', 0, 1, align='R')
+        else:
+            self.set_font('Arial', 'B', 8.5)
+            self.cell(203 - self.get_string_width(f'Estado: Todos'),5, 'Estado:  ',align='R')
+            self.set_font('Arial', '', 8.5)
+            self.cell(0, 5, f' Todos', 0, 1, align='R')
 
         self.line(10, 48, 200, 48)
         self.ln(5)
@@ -395,7 +278,7 @@ class Report_Generator(FPDF):
         self.set_font('Arial', '', 6.5)
         self.cell(0, 10, 'Desarrollado por Venpax, C.A ® 2023 - 2024 / V1', 0, 0, 'C')
 
-    def linechart_payments_and_amount_by_date(self):
+    def linechart_payments_and_amount_by_date(self,report_data):
         """
         Generates a line chart of payments and amounts collected by date.
 
@@ -419,1559 +302,6 @@ class Report_Generator(FPDF):
 
         # Retrieve general payment and amount information within the specified date range
         # Obtenemos los datos directamente desde el backend
-        json_data = self.fetch_data_from_backend()
-
-        # Verificamos si la respuesta es válida
-        if not json_data:
-            print("No se pudo obtener los datos del backend. No se generará el PDF.")
-            return
-    
-        fechas = []
-        pagos = []
-        amount = []
-
-        # Process each entry in the retrieved information
-        for i in general_info:
-
-            # Check if the date exists in the pago directo info
-            if i[0] in self.pago_directo_info[3]:
-                pagos_daily = self.pago_directo_info[3][i[0]]['tickets'] + i[1]
-                amount_daily = self.pago_directo_info[3][i[0]]['amount'] + i[2]
-            else:
-                pagos_daily  = i[1]
-                amount_daily = float(i[2])
-
-            # Append the processed data to the respective lists
-            fechas.append(dt.datetime.strptime(i[0], '%Y-%m-%d').date())
-            pagos.append(pagos_daily)
-            amount.append(amount_daily)
-
-        # Formatter for y-axis labels
-        formatter = FuncFormatter(self.format_dot_comma)
-
-        # Create a DataFrame from the processed data
-        df = pd.DataFrame({'Fecha': fechas, 'Pagos': pagos, 'Monto': amount})
-        df['Fecha'] = pd.to_datetime(df['Fecha'], format='%d-%m-%Y')
-
-        # Calcular la diferencia en días entre la primera y última fecha
-        dias_totales = (df['Fecha'].max() - df['Fecha'].min()).days
-        
-        if dias_totales > 3:
-            
-            # Definir los límites para los bindings
-            limite_semanas = 30
-            limite_meses = 90
-            
-            # Set up the plot style and context
-            sns.set_style(style="whitegrid")
-            sns.set_context("notebook")
-            plt.rcParams.update({'font.family': 'Arial'}) 
-            fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
-            bio = BytesIO() 
-
-            # Set labels for the axes
-            plt.xlabel('Rango de fechas', fontsize=12, fontweight='bold', labelpad=10)
-            ax[0].set_ylabel('Cantidad de Vehículos', fontsize=12, fontweight='bold')  # Modifica el tamaño y establece negrita 
-            ax[1].set_ylabel('Monto Recolectado', fontsize=12, fontweight='bold')    
-
-            # Convert 'Fecha' column to datetime
-            df['Fecha'] = pd.to_datetime(df['Fecha'], format='%d-%m-%Y')
-            
-            # Calculate the difference in days between the last two dates
-            ultima_fecha = df['Fecha'].iloc[-1]
-            penultima_fecha = df['Fecha'].iloc[-2]
-            diferencia_dias = (ultima_fecha - penultima_fecha).days 
-
-            # Set y-axis formatters
-            ax[0].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
-            ax[1].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'Bs, {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
-
-            # Handle different time ranges
-            if dias_totales < 8:
-                # For less than 8 days, plot by weekdays
-                plt.xlabel('Rango de días', fontsize=12)
-                weekdays = {
-                    0:'Lunes',
-                    1:'Martes',
-                    2:'Miércoles',
-                    3:'Jueves',
-                    4:'Viernes',
-                    5:'Sábado',
-                    6:'Domingo'
-                }
-                plt.xticks( rotation=45, ha='center')
-
-                df['Weekday'] = df['Fecha'].apply(lambda x: weekdays[x.weekday()])
-                sns.lineplot( ax=ax[0],x=df['Weekday'].to_list(), y=df['Pagos'].to_list(), color="#FFC200", linewidth=2.5)
-                sns.lineplot( ax=ax[1],x=df['Weekday'].to_list(), y=df['Monto'].to_list(), color="#FF7F50", linewidth=2.5)
-                # ax[0].set_xticks( df_semanas['Weekday'].to_list() )
-                # ax[0].set_xticks( df_semanas['Fecha'].to_list() )
-                ax[0].set_xticklabels([])
-                # ax[1].set_xticks( df_semanas['Fecha'].to_list() )
-                plt.xticks( rotation=45, ha='center')
-                ax[0].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
-                ax[1].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'Bs, {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
-                
-
-            elif dias_totales <= limite_semanas:
-            
-                # For up to 30 days, plot by individual dates
-                ax[0].xaxis.set_major_locator(ticker.MaxNLocator(9))
-                ax[1].xaxis.set_major_locator(ticker.MaxNLocator(9))
-                df['Fecha'] = df['Fecha'].dt.strftime('%d-%m-%Y')
-                sns.lineplot(ax=ax[0], x=df['Fecha'].to_list(), y=df['Pagos'].to_list(), color="#FFC200", linewidth=2.5)
-                sns.lineplot(ax=ax[1], x=df['Fecha'].to_list(), y=df['Monto'].to_list(), color="#FF7F50", linewidth=2.5)
-                ax[0].set_xticklabels([])
-                plt.xticks( rotation=45, ha='center')
-                ax[0].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
-                ax[1].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'Bs, {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
-                
-                
-            elif dias_totales > limite_semanas and dias_totales < limite_meses:
-        
-                # For more than 30 days but less than 90 days, plot by weeks
-                df_semanas = df.groupby(pd.Grouper(key='Fecha', freq='W-MON')).sum().reset_index()
-                df_semanas['Fecha'] = df_semanas['Fecha'].dt.strftime('%d-%m-%Y')
-                df['Fecha'] = df['Fecha'].dt.strftime('%d-%m-%Y')
-                
-                if diferencia_dias < 3:
-                    df_semanas['Fecha'].to_list().pop(-2)
-
-                sns.lineplot(ax=ax[0], x=df['Fecha'].to_list(), y=df['Pagos'].to_list(), color="#FFC200", linewidth=2.5)
-                sns.lineplot(ax=ax[1], x=df['Fecha'].to_list(), y=df['Monto'].to_list(), color="#FF7F50", linewidth=2.5)
-                
-                ax[0].set_xticks( df_semanas['Fecha'].to_list() )
-                ax[0].set_xticklabels([])
-                ax[1].set_xticks( df_semanas['Fecha'].to_list() )
-                plt.xticks( rotation=45, ha='center')
-                ax[0].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
-                ax[1].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'Bs, {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
-                
-               
-
-            elif dias_totales >= limite_meses:
-                # For more than 90 days, plot by months
-                
-                df_meses = df.groupby(pd.Grouper(key='Fecha', freq='ME')).sum().reset_index()
-                df_meses['Fecha'] = df_meses['Fecha'].dt.strftime('%d-%m-%Y')
-                df['Fecha'] = df['Fecha'].dt.strftime('%d-%m-%Y')
-                months = []
-                for date in df_meses['Fecha'].to_list():
-                    if date in df['Fecha'].to_list():
-                        months.append(date)
-                if df['Fecha'].to_list()[0] not in months:
-                    months.insert(0, df['Fecha'].to_list()[0])
-                if df['Fecha'].to_list()[-1] not in months:
-                    months.append( df['Fecha'].to_list()[-1])
-
-                if diferencia_dias < 3:
-                    months.pop(-2)
-                
-                    
-                sns.lineplot(x=df['Fecha'].to_list(), y=df['Pagos'].to_list(), color="#FFC200", linewidth=2.5, ax=ax[0])
-                sns.lineplot(x=df['Fecha'].to_list(), y=df['Monto'].to_list(), color="#FF7F50", linewidth=2.5, ax=ax[1])
-                ax[0].set_xticks(months)
-                ax[0].set_xticklabels([])
-                ax[1].set_xticks(months)
-                plt.xticks( rotation=45, ha='center')
-                plt.gca().yaxis.set_major_formatter(formatter)
-                ax[0].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
-                ax[1].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'Bs, {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
-                
-            # Save the figure to a BytesIO object - In memory
-            fig.savefig(bio, format="png", bbox_inches='tight')
-            img_encoded = base64.b64encode(bio.getvalue()).decode()
-
-            # Save the image to a temporary file
-            with open("temp_img_line_collected.png", "wb") as f:
-                f.write(base64.b64decode(img_encoded))
-
-            # Add the image to the report
-            self.ln(5)
-            self.set_font('Arial', 'B', 11.5)
-            self.set_fill_color(255,194,0)
-            self.set_text_color(40,40,40)
-            line_height = self.font_size * 2.5
-            self.ln(5)
-            self.cell(0, line_height, 'Gráficos de Accesos e Ingresos por Fechas', border=0, align='L', fill=True, ln=1)
-            self.image("temp_img_line_collected.png", h=140, w=180)
-
-            # Remove the temporary file
-            os.remove("temp_img_line_collected.png")
-            self.ln(10)
-
-    def charts_vehicles2(self):
-        """
-        Generates and saves charts for vehicle payments within a specified date range.
-
-        This function calculates the difference in days between the start and end dates,
-        retrieves vehicle payment data, adjusts the data with direct payment info, and
-        generates bar and pie charts to visualize the data. The charts are saved as images
-        and added to a PDF report.
-
-        Returns:
-            None
-        """
-
-        date_format = "%Y-%m-%dT%H:%M:%S" 
-
-        try:
-            # Calculate the difference in days between the start and end dates
-            start_date_dt = datetime.strptime(self.start_date, date_format)
-            end_date_dt = datetime.strptime(self.end_date, date_format)
-        except ValueError as e:
-            print(f"Error en el formato de las fechas: {e}")
-            return
-
-        delta_days = (end_date_dt - start_date_dt).days
-
-        
-        # Obtenemos los datos directamente desde el backend
-        json_data = self.fetch_data_from_backend()
-
-        # Verificamos si la respuesta es válida
-        if not json_data:
-            print("No se pudo obtener los datos del backend. No se generará el PDF.")
-            return
-
-
-        
-        # Prepare data for DataFrame
-        cantidad = []
-        nombre = []
-        monto = []
-        for i in tarifas:
-            monto.append(tarifas[i]['monto'])
-            cantidad.append(tarifas[i]['cantidad'])
-            nombre.append(tarifas[i]['nombre'])
-
-        # Create DataFrames
-        df_1 = pd.DataFrame({'Nombre': nombre, 'Cantidad': cantidad})
-        df_2 = pd.DataFrame({'Nombre': nombre, 'Monto': monto})
-
-        # Configure figure size
-        bio = BytesIO()   
-
-        # Vehicle order for sorting charts
-        orden_vehiculos = {
-            'Vehículo liviano': 1,
-            'Microbús': 2,
-            'Autobús': 3,
-            'Camión liviano': 4,
-            'Camión 2 ejes': 5,
-            'Camión 3 ejes': 6,
-            'Camión 4 ejes': 7,
-            'Camión 5 ejes': 8,
-            'Camión 6+ ejes': 9,
-            'Exonerado General': 10,
-            'Exonerado Ambulancia': 11,
-            'Exonerado Seguridad': 12,
-            'Exonerado Gobernación': 13,
-            'Exonerado PDVSA': 14
-        }
-
-        df_1['Orden'] = df_1['Nombre'].map(orden_vehiculos)
-        df_1_sorted = df_1.sort_values('Orden')
-
-        df_2['Orden'] = df_2['Nombre'].map(orden_vehiculos)
-        df_2_sorted = df_2.sort_values('Orden')
-
-        # Check if the difference in days is less than 3
-        if delta_days < 4:
-            # Configure figure size and font
-            plt.rcParams.update({'font.family': 'Arial'})
-            fig = plt.figure(figsize=(16, 20))
-            gs = fig.add_gridspec(2, 2, height_ratios=[2, 3])
-
-            # Create horizontal bar charts
-            ax0 = fig.add_subplot(gs[0, 0])
-            ax1 = fig.add_subplot(gs[0, 1])
-            ax2 = fig.add_subplot(gs[1, :])
-
-            # Quantity chart
-            sns.barplot(
-                ax=ax0,
-                x='Cantidad', 
-                y='Nombre', 
-                data=df_1_sorted,
-                color="#FFCB26",
-                saturation=1
-            )
-            ax0.set_title('Cantidad de Pagos por Tipo de Tarifa', fontsize=20, pad=20, loc='center', weight='bold')
-
-            # Amount chart
-            sns.barplot(
-                ax=ax1,
-                x='Monto', 
-                y='Nombre', 
-                data=df_2_sorted,
-                color="#FFCB26",
-                saturation=1
-            )
-            ax1.set_title('Monto de Pagos por Tipo de Tarifa', fontsize=20, pad=20, loc='center', weight='bold')
-
-            # Rotate x-axis labels
-            ax0.set_xticklabels(ax0.get_xticklabels(), rotation=45, ha='center')
-            ax1.set_xticklabels(ax1.get_xticklabels(), rotation=45, ha='center')
-
-            # Calculate totals for percentages
-            total_cantidad = df_1_sorted['Cantidad'].sum()
-            total_monto = df_2_sorted['Monto'].sum()
-
-            # Add percentage labels above each bar
-            for index, value in enumerate(df_1_sorted['Cantidad']):
-                ax0.text(df_1_sorted['Cantidad'].max() * 0.05, index, f'{str(locale.format_string("%.f", value, True))} ({locale.format_string("%.2f", ((value / total_cantidad) * 100), True)}%)', va='center', fontsize=15, color='black', weight='bold')
-
-            for index, value in enumerate(df_2_sorted['Monto']):
-                ax1.text(df_2_sorted['Monto'].max() * 0.05, index, f'Bs. {str(locale.format_string("%.2f", value, True))} ({locale.format_string("%.2f", ((value / total_monto) * 100), True)}%)', va='center', fontsize=15, color='black', weight='bold')
-
-            # Adjust axis limits and labels
-            ax0.set_xlim(0, df_1_sorted['Cantidad'].max() * 1.2)
-            ax1.set_xlim(0, df_2_sorted['Monto'].max() * 1.2)
-
-            # Functions to format x-axis labels with thousand separators
-            def thousands_cantidad(x, pos):
-                return str(locale.format_string('%.f', x, True))
-
-            def thousands_monto(x, pos):
-                return str(locale.format_string('%.2f', x, True))
-
-            formatter_cantidad = FuncFormatter(thousands_cantidad)
-            formatter_monto = FuncFormatter(thousands_monto)
-
-            # Apply formatter to x-axis
-            ax0.xaxis.set_major_formatter(formatter_cantidad)
-            ax1.xaxis.set_major_formatter(formatter_monto)
-            
-
-            # Add labels and titles with top margin
-            ax0.set_xlabel('Cantidad de pagos', fontsize=19, labelpad=20, weight='bold')
-            ax0.set_ylabel('Tarifas', fontsize=19, weight='bold')
-            ax1.set_xlabel('Montos de pagos', fontsize=19, labelpad=20, weight='bold')
-            ax1.set_ylabel('', fontsize=23, weight='bold')
-
-            # Remove y-axis labels from the second bar chart
-            ax1.set_yticklabels([])
-            ax1.tick_params(left=False)
-            ax0.tick_params(axis='both', which='major', labelsize=15)  # Para el eje x
-            ax1.tick_params(axis='both', which='major', labelsize=15)  # Para el eje y
-
-           
-            
-            ax0.grid(False)
-            ax1.grid(False)
-
-            # Add horizontal lines between bars
-            for i in range(len(df_1_sorted)):
-                ax0.axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
-                ax1.axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
-
-            # Add a border line to the chart
-            for ax in [ax0, ax1]:
-                ax.spines['top'].set_color('white')
-                ax.spines['right'].set_color('white')
-                ax.spines['left'].set_color('grey')
-                ax.spines['bottom'].set_color('grey')
-
-            # Custom Pie Chart
-            plt.rcParams.update({'font.family': 'Arial'})
-
-            # Colors for the pie chart
-            color_palette = ['#FFC200', '#FF7F50', '#FF6B81', '#66CCCC', '#6699CC', '#FF8C00', '#99CCFF', '#66FF99', '#FF99CC', '#CC99FF', '#FF6348', '#FF69B4', '#FFFF99', '#99FF99']
-
-            # Calculate percentages
-            total = sum(df_1_sorted['Cantidad'])
-
-            # Check if total is zero before calculating percentages
-            if total == 0:
-                porcentajes = [0] * len(df_1_sorted['Cantidad'])  # Asigna 0 a todos los porcentajes si el total es cero
-            else:
-                porcentajes = [(cantidad / total) * 100 for cantidad in df_1_sorted['Cantidad']]
-
-            # Filter percentages less than 4% and replace with None
-            for i, porcentaje in enumerate(porcentajes):
-                if porcentaje < 4:
-                    porcentajes[i] = None
-
-            # Create the pie chart
-            patches, _, _ = ax2.pie(
-                df_1_sorted['Cantidad'], 
-                labels=None, 
-                autopct=lambda p: '{:.1f}%'.format(p) if p >= 4 else '', 
-                colors=color_palette, 
-                wedgeprops=dict(edgecolor='w', linewidth=1.5),
-                textprops={'fontsize': 20},
-                radius=0.9
-            )
-
-            # Add title
-            ax2.set_title('Ingreso de Vehículos en Porcentaje', fontsize=24, loc='center', weight='bold')
-
-            # Add legend to the left with larger font
-            ax2.legend(patches, df_1_sorted['Nombre'], loc='center left', fontsize=15, bbox_to_anchor=(-0.3, 0.5))
-
-            # Adjust space between subplots
-            plt.subplots_adjust(hspace=20)
-
-
-            plt.tight_layout()
-
-            # Save the chart
-            fig.savefig(bio, format="png", bbox_inches='tight')
-            img_encoded = base64.b64encode(bio.getvalue()).decode()
-            with open("temp_img_chart_collected_per_vehicles.png", "wb") as f:
-                f.write(base64.b64decode(img_encoded))
-            self.ln(5)
-            self.set_font('Arial', 'B', 11.5)
-            self.set_fill_color(255,194,0)
-            self.set_text_color(40,40,40)
-            line_height = self.font_size * 2.5
-            self.cell(0, line_height, 'Gráficos de Vehículos', border=0, align='L', fill=True, ln=1)
-            # Calcular la posición x para centrar la imagen en la página
-            x_position = (216 - 120) / 2  # self.w es el ancho de la página
-            self.ln(5)
-            self.image("temp_img_chart_collected_per_vehicles.png", x=x_position, h=140, w=120)
-            os.remove("temp_img_chart_collected_per_vehicles.png")
-            self.ln(10)
-            
-            return
-        
-        # Configure figure size and font
-        plt.rcParams.update({'font.family': 'Arial'})
-        fig = plt.figure(figsize=(16, 20))
-        gs = fig.add_gridspec(2, 2, height_ratios=[2, 3])
-
-        # Create horizontal bar charts
-        ax0 = fig.add_subplot(gs[0, 0])
-        ax1 = fig.add_subplot(gs[0, 1])
-        ax2 = fig.add_subplot(gs[1, :])
-
-        # Quantity chart
-        sns.barplot(
-            ax=ax0,
-            x='Cantidad', 
-            y='Nombre', 
-            data=df_1_sorted,
-            color="#FFCB26",
-            saturation=1
-        )
-        ax0.set_title('Cantidad y Porcentaje de Pagos por Categoría', fontsize=18, pad=20, loc='center', weight='bold')
-
-        # Amount chart
-        sns.barplot(
-            ax=ax1,
-            x='Monto', 
-            y='Nombre', 
-            data=df_2_sorted,
-            color="#FFCB26",
-            saturation=1
-        )
-        ax1.set_title('Monto y Porcentaje de Pagos por Categoría', fontsize=18, pad=20, loc='center', weight='bold')
-
-        # Rotate x-axis labels
-        ax0.set_xticklabels(ax0.get_xticklabels(), rotation=45, ha='center')
-        ax0.xaxis.set_ticks_position('bottom') 
-        ax1.set_xticklabels(ax1.get_xticklabels(), rotation=45, ha='center')
-        ax1.xaxis.set_ticks_position('bottom')
-
-        # Calculate totals for percentages
-        total_cantidad = df_1_sorted['Cantidad'].sum()
-        total_monto = df_2_sorted['Monto'].sum()
-
-        # Add percentage labels above each bar
-        for index, value in enumerate(df_1_sorted['Cantidad']):
-            ax0.text(df_1_sorted['Cantidad'].max() * 0.05, index, f'{str(locale.format_string("%.f", value, True))} ({locale.format_string("%.2f", ((value / total_cantidad) * 100), True)}%)', va='center', fontsize=15, color='black', weight='bold')
-
-        for index, value in enumerate(df_2_sorted['Monto']):
-            ax1.text(df_2_sorted['Monto'].max() * 0.05, index, f'Bs. {str(locale.format_string("%.2f", value, True))} ({locale.format_string("%.2f", ((value / total_monto) * 100), True)}%)', va='center', fontsize=15, color='black', weight='bold')
-
-        # Adjust axis limits and labels
-        ax0.set_xlim(0, df_1_sorted['Cantidad'].max() * 1.2)
-        ax1.set_xlim(0, df_2_sorted['Monto'].max() * 1.2)
-
-        # Functions to format x-axis labels with thousand separators
-        def thousands_cantidad(x, pos):
-            return str(locale.format_string('%.f', x, True))
-
-        def thousands_monto(x, pos):
-            return str(locale.format_string('%.2f', x, True))
-
-        formatter_cantidad = FuncFormatter(thousands_cantidad)
-        formatter_monto = FuncFormatter(thousands_monto)
-
-        # Apply formatter to x-axis
-        ax0.xaxis.set_major_formatter(formatter_cantidad)
-        ax1.xaxis.set_major_formatter(formatter_monto)
-
-        # Add labels and titles with top margin
-        ax0.set_xlabel('Cantidad de pagos', fontsize=17, labelpad=20, weight='bold')
-        ax0.set_ylabel('Categorías', fontsize=17, weight='bold')
-        ax1.set_xlabel('Monto Recolectado', fontsize=17, labelpad=20, weight='bold')
-        ax1.set_ylabel('', fontsize=23, weight='bold')
-
-        # Remove y-axis labels from the second bar chart
-        ax1.set_yticklabels([])
-        ax1.tick_params(left=False)
-        ax0.tick_params(axis='both', which='major', labelsize=15)  # Para el eje x
-        ax1.tick_params(axis='both', which='major', labelsize=15)  # Para el eje y
-        # Rotate x-axis labels
-        ax0.set_xticklabels(ax0.get_xticklabels(), rotation=45, ha='center')
-        ax1.set_xticklabels(ax1.get_xticklabels(), rotation=45, ha='center')
-        
-        ax0.grid(False)
-        ax1.grid(False)
-
-        # Add horizontal lines between bars
-        for i in range(len(df_1_sorted)):
-            ax0.axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
-            ax1.axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
-
-        # Add a border line to the chart
-        for ax in [ax0, ax1]:
-            ax.spines['top'].set_color('white')
-            ax.spines['right'].set_color('white')
-            ax.spines['left'].set_color('grey')
-            ax.spines['bottom'].set_color('grey')
-
-        # Custom Pie Chart
-        plt.rcParams.update({'font.family': 'Arial'})
-
-        # Colors for the pie chart
-        color_palette = ['#FFC200', '#FF7F50', '#FF6B81', '#66CCCC', '#6699CC', '#FF8C00', '#99CCFF', '#66FF99', '#FF99CC', '#CC99FF', '#FF6348', '#FF69B4', '#FFFF99', '#99FF99']
-
-        # Calculate percentages
-        total = sum(cantidad)
-        porcentajes = [(cantidad / total) * 100 for cantidad in df_1_sorted['Cantidad']]
-
-        # Filter percentages less than 4% and replace with None
-        for i, porcentaje in enumerate(porcentajes):
-            if porcentaje < 4:
-                porcentajes[i] = None
-
-        # Create the pie chart
-        patches, _, _ = ax2.pie(
-            df_1_sorted['Cantidad'], 
-            labels=None, 
-            autopct=lambda p: '{:.1f}%'.format(p) if p >= 4 else '', 
-            colors=color_palette, 
-            wedgeprops=dict(edgecolor='w', linewidth=1.5),
-            textprops={'fontsize': 20}
-        )
-
-        # Set title
-        ax2.set_title('Ingreso de Vehículos en Porcentaje', fontsize=24, loc='center', weight='bold' , pad=-500)
-
-        # Add legend to the left with larger font
-        ax2.legend(patches, df_1_sorted['Nombre'], loc='center left', fontsize=15, bbox_to_anchor=(-0.4, 0.5))
-
-        # Adjust space between subplots
-        plt.subplots_adjust(hspace=20)
-        plt.tight_layout()
-
-        # Save chart
-        fig.savefig(bio, format="png", bbox_inches='tight')
-        img_encoded = base64.b64encode(bio.getvalue()).decode()
-        with open("temp_img_chart_collected_per_vehicles.png", "wb") as f:
-            f.write(base64.b64decode(img_encoded))
-        self.ln(5)
-        self.set_font('Arial', 'B', 11.5)
-        self.set_fill_color(255,194,0)
-        self.set_text_color(40,40,40)
-        line_height = self.font_size * 2.5
-        self.cell(0, line_height, 'Gráficos de Vehículos', border=0, align='L', fill=True, ln=1)
-        x_position = (216 - 180) / 2
-        self.ln(5)
-        self.image("temp_img_chart_collected_per_vehicles.png", x=x_position, h=200, w=180)
-
-        os.remove("temp_img_chart_collected_per_vehicles.png")
-        self.ln(10)
-
-    def charts_vehicles(self):
-        
-        date_format = "%Y-%m-%dT%H:%M:%S" 
-
-        try:
-            # Calcular la diferencia de días entre las fechas de inicio y fin
-            start_date_dt = datetime.strptime(self.start_date, date_format)
-            end_date_dt = datetime.strptime(self.end_date, date_format)
-        except ValueError as e:
-            print(f"Error en el formato de las fechas: {e}")
-            return
-
-        delta_days = (end_date_dt - start_date_dt).days
-
-        tarifas = Tickets.get_vehicles_general(self.start_date, self.end_date)
-        
-        tarifas[1]["cantidad"] = tarifas[1]["cantidad"] + self.pago_directo_info[0]
-        tarifas[1]["monto"] = tarifas[1]["monto"] + self.pago_directo_info[1]
-        
-        cantidad = []
-        nombre = []
-        monto = []
-        for i in tarifas:
-            monto.append(tarifas[i]['monto'])
-            cantidad.append(tarifas[i]['cantidad'])
-            nombre.append(tarifas[i]['nombre'])
-
-        # Crear DataFrames usando estas listas
-        df_1 = pd.DataFrame({'Nombre': nombre, 'Cantidad': cantidad})
-        df_2 = pd.DataFrame({'Nombre': nombre, 'Monto': monto})
-
-        # Configuramos el tamaño de la figura
-        bio = BytesIO()   
-
-        # Orden de vehículos para ordenar las gráficas
-        orden_vehiculos = {
-            'Vehículo liviano': 1,
-            'Microbús': 2,
-            'Autobús': 3,
-            'Camión liviano': 4,
-            'Camión 2 ejes': 5,
-            'Camión 3 ejes': 6,
-            'Camión 4 ejes': 7,
-            'Camión 5 ejes': 8,
-            'Camión 6+ ejes': 9,
-            'Exonerado General': 10,
-            'Exonerado Ambulancia': 11,
-            'Exonerado Seguridad': 12,
-            'Exonerado Gobernación': 13,
-            'Exonerado PDVSA': 14
-        }
-
-        df_1['Orden'] = df_1['Nombre'].map(orden_vehiculos)
-        df_1_sorted = df_1.sort_values('Orden')
-
-        df_2['Orden'] = df_2['Nombre'].map(orden_vehiculos)
-        df_2_sorted = df_2.sort_values('Orden')
-
-        # Configurar el tamaño de la figura y la fuente a Arial
-        plt.rcParams.update({'font.family': 'Arial'})
-
-        if delta_days > 3:
-            fig, ax = plt.subplots(2, 2, figsize=(16, 17))
-        else:
-            fig, ax = plt.subplots(2, 2, figsize=(16, 12))
-
-        # Crear gráficos de barras horizontales
-        sns.barplot(
-            ax=ax[0, 0],
-            x='Cantidad', 
-            y='Nombre', 
-            data=df_1_sorted,
-            color="#FFCB26",
-            saturation=1
-        )
-        sns.barplot(
-            ax=ax[0, 1],
-            x='Monto', 
-            y='Nombre', 
-            data=df_2_sorted,
-            color="#FFCB26",
-            saturation=1
-        )
-
-        ax[0, 0].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
-        ax[0, 0].set_xticklabels(ax[0, 0].get_xticklabels(), rotation=45, ha='center')
-
-        ax[0, 1].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
-        ax[0, 1].set_xticklabels(ax[0, 1].get_xticklabels(), rotation=45, ha='center')
-
-        # Agregar títulos a cada gráfica
-        ax[0, 0].set_title('Cantidad de Pagos por Categoría', fontsize=15, pad=20, loc='center', weight='bold')
-        ax[0, 1].set_title('Monto de Pagos por Categoría', fontsize=15, pad=20, loc='center', weight='bold')
-
-        # Calcular el total para los porcentajes
-        total_cantidad = df_1_sorted['Cantidad'].sum()
-        total_monto = df_2_sorted['Monto'].sum()
-
-        # Añadir etiquetas de porcentaje encima de cada barra
-        for index, value in enumerate(df_1_sorted['Cantidad']):
-            ax[0, 0].text(df_1_sorted['Cantidad'].max() * 0.05, index, f'Total = {str(locale.format_string("%.f", value, True))}', va='center', fontsize=10, color='black', weight='bold')
-
-        for index, value in enumerate(df_2_sorted['Monto']):
-            ax[0, 1].text(df_2_sorted['Monto'].max() * 0.05, index, f'Bs. {str(locale.format_string("%.2f", value, True))}', va='center', fontsize=10, color='black', weight='bold')
-        
-        # Ajustar los límites de los ejes y las etiquetas
-        ax[0, 0].set_xlim(0, df_1_sorted['Cantidad'].max() * 1.2)
-        ax[0, 1].set_xlim(0, df_2_sorted['Monto'].max() * 1.2)
-
-        # Funciones para formatear las etiquetas del eje x con separador de miles
-        def thousands_cantidad(x, pos):
-            return str(locale.format_string('%.f', x, True))
-
-        def thousands_monto(x, pos):
-            return str(locale.format_string('%.2f', x, True))
-
-        formatter_cantidad = FuncFormatter(thousands_cantidad)
-        formatter_monto = FuncFormatter(thousands_monto)
-
-        # Aplicar el formateador al eje x
-        ax[0, 0].xaxis.set_major_formatter(formatter_cantidad)
-        ax[0, 1].xaxis.set_major_formatter(formatter_monto)
-
-        # Añadir etiquetas y títulos con margen superior
-        ax[0, 0].set_xlabel('Cantidad de pagos', fontsize=16, labelpad=20, weight='bold')
-        ax[0, 0].set_ylabel('Categorías', fontsize=16, weight='bold', labelpad=20)
-        ax[0, 1].set_xlabel('Monto Recolectado', fontsize=16, labelpad=20, weight='bold')
-        ax[0, 1].set_ylabel('', fontsize=12, weight='bold')
-
-        # Eliminar etiquetas del eje y de la segunda gráfica de barras
-        ax[0, 1].set_yticklabels([])
-        ax[0, 1].tick_params(left=False)
-        ax[0, 0].grid(False)
-        ax[0, 1].grid(False)
-
-        # Añadir líneas horizontales entre las barras
-        for i in range(len(df_1_sorted)):
-            ax[0, 0].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
-            ax[0, 1].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
-
-        # Agregar gráficas de torta
-       
-        df_3 = pd.DataFrame({'Nombre': nombre, 'Cantidad': cantidad})
-        df_4 = pd.DataFrame({'Nombre': nombre, 'Monto': monto})
-
-        delta_days = (end_date_dt - start_date_dt).days
-
-        colorPalette = [
-                        '#FFC200', 
-                        '#FF7F50', 
-                        '#FF6B81',
-                        '#66CCCC', 
-                        '#6699CC', 
-                        '#FF8C00', 
-                        '#99CCFF', 
-                        '#66FF99',
-                        '#FF99CC', 
-                        '#CC99FF', 
-                        '#FF6348', 
-                        '#FF69B4', 
-                        '#FFFF99', 
-                        '#99FF99'  
-                    ]
-        
-        df_4['Orden'] = df_4['Nombre'].map(orden_vehiculos)
-
-        def my_autopct(pct):
-            return f'{pct:.1f}%' if pct > 4 else ''
-
-        if delta_days > 3:
-            ax[1, 0].pie(df_3['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.3)
-            ax[1, 1].pie(df_4['Monto'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.3)
-            plt.subplots_adjust(wspace=0.035, hspace=0.7)
-            ax[1, 0].set_title('Porcentaje de Cantidad de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-1.12, y=1.15)
-            ax[1, 1].legend(loc='upper center', labels=df_4['Nombre'], bbox_to_anchor=(-0.6, -0.2), ncol=3, prop={'size': 15})
-
-            ax[1, 1].set_title('Porcentaje de Monto de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-0.26, y=1.15)
-        else:
-            ax[1, 0].pie(df_3['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.1)
-            ax[1, 1].pie(df_4['Monto'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.1)
-            plt.subplots_adjust(wspace=0.035, hspace=0.7)
-            
-            ax[1, 0].set_title('Porcentaje de Cantidad de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-1.6, y=1.05)
-            ax[1, 0].legend(loc='upper center', labels=df_4['Nombre'], bbox_to_anchor=(2.35, -0.1), ncol=3, prop={'size': 13})
-            ax[1, 1].set_title('Porcentaje de Monto de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-0.5, y=1.05)
- 
-
-        ax[1, 0].set_xlim(-0.1, 1)
-        ax[1, 1].set_xlim(-0.8, 1)
-
-        # Define el color para las líneas
-        color_lineas1 = 'white'
-        color_lineas2 = 'grey'
-
-        # Añadir líneas horizontales entre las barras
-        for i in range(len(df_1_sorted)):
-            ax[0, 0].axhline(y=i-0.5, color=color_lineas2, linewidth=0.8, linestyle='--')
-            ax[0, 1].axhline(y=i-0.5, color=color_lineas2, linewidth=0.8, linestyle='--')
-
-        # Añadir una línea al borde de la gráfica
-        for i in range(2):
-            for j in range(2):
-                ax[i, j].spines['top'].set_color(color_lineas1)
-                ax[i, j].spines['right'].set_color(color_lineas1)
-                ax[i, j].spines['bottom'].set_color(color_lineas2)
-                ax[i, j].spines['left'].set_color(color_lineas2)
-        
-        # Mostramos el gráfico
-        fig.savefig(bio, format="png", bbox_inches='tight')
-        img_encoded = base64.b64encode(bio.getvalue()).decode()
-        with open("temp_img_chart_collected_per_vehicles2.png", "wb") as f:
-            f.write(base64.b64decode(img_encoded))
-        self.ln(5)
-
-        self.set_font('Arial', 'B', 11.5)
-        self.set_fill_color(255,194,0)
-        self.set_text_color(40,40,40)
-        line_height = self.font_size * 2.5
-        self.cell(0, line_height, 'Gráficos de Vehículos', border=0, align='L', fill=True, ln=1)
-
-        self.ln(7)
-        x_position = (216 - 180) / 2 
-
-        if delta_days > 3:
-            self.image("temp_img_chart_collected_per_vehicles2.png", x=x_position, h=200, w=180)
-        else:
-            self.image("temp_img_chart_collected_per_vehicles2.png", x=x_position, h=140, w=180)
-        os.remove("temp_img_chart_collected_per_vehicles2.png")
-
-    def charts_payments(self):
-
-        metodos_pago_information = Payments.get_payment_type(self.start_date, self.end_date)
-        metodos_pago_information[3]["pg"] = {
-                                                "name":"Pago Directo Bluetooth",
-                                                "amount":self.pago_directo_info[1],
-                                                "num_transactions":self.pago_directo_info[0],
-                                                "amount_pivoted":self.pago_directo_info[1]
-                                            } 
-        metodos_pago_information[3]['num_transactions'] = metodos_pago_information[3]['num_transactions'] + self.pago_directo_info[0]
-        metodos_pago_information[3]['amount'] = metodos_pago_information[3]['amount'] + self.pago_directo_info[1]
-        metodos_pago_information[3]['amount_pivoted'] = metodos_pago_information[3]['amount_pivoted'] + self.pago_directo_info[1]
-
-        cantidad = []
-        nombre = []
-        montos = []
-        cantidades_efectivo = []
-        montos_efectivo = []
-        nombre_efectivo = []
-        for key,currencies in metodos_pago_information.items():
-            if isinstance(currencies, dict):
-                for key_2, payment_type in currencies.items():
-                    if (((key == 1 or key == 2) and key_2 == 1) or key == 3) and isinstance(payment_type, dict):
-                        cantidad.append(payment_type['num_transactions'])
-                        nombre.append(payment_type['name'])
-                        montos.append(payment_type['amount_pivoted'])
-        
-        cantidades_efectivo.append(metodos_pago_information[3]['num_transactions'])
-        cantidades_efectivo.append(metodos_pago_information[2]['num_transactions'])
-        cantidades_efectivo.append(metodos_pago_information[1]['num_transactions'])
-
-        montos_efectivo.append(metodos_pago_information[3]['amount_pivoted'])
-        montos_efectivo.append(metodos_pago_information[2]['amount_pivoted'])
-        montos_efectivo.append(metodos_pago_information[1]['amount_pivoted'])
-
-        nombre_efectivo.append('Bolívares')
-        nombre_efectivo.append('Dólares')
-        nombre_efectivo.append('Pesos')
-
-        df_1 = pd.DataFrame({'Nombre': nombre, 'Cantidad': cantidad})
-        df_2 = pd.DataFrame({'Nombre': nombre, 'Monto': montos})
-
-        # Configuramos el tamaño de la figura
-        bio = BytesIO()  
-
-        orden_metodos_de_pago = {
-            'Efectivo Bolívares': 1,
-            'Efectivo Dólares': 2,
-            'Efectivo Pesos': 3,
-            'Pago Móvil': 4,
-            'Punto de venta Bancamiga': 5,
-            'Punto de venta BNC': 6,
-            'Punto de venta Bicentenario': 7,
-            'Ventag': 8,
-            'VenVías': 9,
-            'Cobretag': 10,
-            'Pago Directo': 11,
-            'Pago Directo Bluetooth': 12,
-            'Exonerado': 13
-        }
-        df_1['Orden'] = df_1['Nombre'].map(orden_metodos_de_pago)
-        df_1_sorted = df_1.sort_values('Orden')
-
-        df_2['Orden'] = df_2['Nombre'].map(orden_metodos_de_pago)
-        df_2_sorted = df_2.sort_values('Orden')
-
-        # Configurar el tamaño de la figura y la fuente a Arial
-        plt.rcParams.update({'font.family': 'Arial'})
-        fig, ax = plt.subplots(2, 2, figsize=(16, 12))
-
-        # Crear gráficos de barras horizontales
-        sns.barplot(
-            ax=ax[0, 0],
-            x='Cantidad', 
-            y='Nombre', 
-            data=df_1_sorted,
-            color="#FFCB26",
-            saturation=1
-        )
-        sns.barplot(
-            ax=ax[0, 1],
-            x='Monto', 
-            y='Nombre', 
-            data=df_2_sorted,
-            color="#FFCB26",
-            saturation=1
-        )
-
-        ax[0, 0].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
-        ax[0, 0].set_xticklabels(ax[0, 0].get_xticklabels(), rotation=45, ha='center')
-
-        ax[0, 1].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
-        ax[0, 1].set_xticklabels(ax[0, 1].get_xticklabels(), rotation=45, ha='center')
-
-        # Agregar títulos a cada gráfica
-        ax[0, 0].set_title('Cantidad de Pagos por Método de Pago', fontsize=15, pad=20, loc='center', weight='bold')
-        ax[0, 1].set_title('Monto de Pagos por Método de Pago', fontsize=15, pad=20, loc='center', weight='bold')
-
-        # Calcular el total para los porcentajes
-        total_cantidad = df_1_sorted['Cantidad'].sum()
-        total_monto = df_2_sorted['Monto'].sum()
-
-        # Añadir etiquetas de porcentaje encima de cada barra
-        for index, value in enumerate(df_1_sorted['Cantidad']):
-            ax[0, 0].text(df_1_sorted['Cantidad'].max() * 0.05, index, f'Total = {str(locale.format_string("%.f", value, True))}', va='center', fontsize=10, color='black', weight='bold')
-
-        for index, value in enumerate(df_2_sorted['Monto']):
-            ax[0, 1].text(df_2_sorted['Monto'].max() * 0.05, index, f'Bs. {str(locale.format_string("%.2f", value, True))}', va='center', fontsize=10, color='black', weight='bold')
-
-        # Ajustar los límites de los ejes y las etiquetas
-        ax[0, 0].set_xlim(0, df_1_sorted['Cantidad'].max() * 1.2)
-        ax[0, 1].set_xlim(0, df_2_sorted['Monto'].max() * 1.2)
-
-        # Funciones para formatear las etiquetas del eje x con separador de miles
-        def thousands_cantidad(x, pos):
-            return str(locale.format_string('%.f', x, True))
-
-        def thousands_monto(x, pos):
-            return str(locale.format_string('%.2f', x, True))
-
-        formatter_cantidad = FuncFormatter(thousands_cantidad)
-        formatter_monto = FuncFormatter(thousands_monto)
-
-        # Aplicar el formateador al eje x
-        ax[0, 0].xaxis.set_major_formatter(formatter_cantidad)
-        ax[0, 1].xaxis.set_major_formatter(formatter_monto)
-
-        # Añadir etiquetas y títulos con margen superior
-        ax[0, 0].set_xlabel('Cantidad de pagos', fontsize=16, labelpad=20, weight='bold')
-        ax[0, 0].set_ylabel('Métodos de Pago', fontsize=16, weight='bold', labelpad=20)
-        ax[0, 1].set_xlabel('Monto Recolectado', fontsize=16, labelpad=20, weight='bold')
-        ax[0, 1].set_ylabel('', fontsize=12, weight='bold')
-
-        # Eliminar etiquetas del eje y de la segunda gráfica de barras
-        ax[0, 1].set_yticklabels([])
-        ax[0, 1].tick_params(left=False)
-        ax[0, 0].grid(False)
-        ax[0, 1].grid(False)
-
-        # Añadir líneas horizontales entre las barras
-        for i in range(len(df_1_sorted)):
-            ax[0, 0].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
-            ax[0, 1].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
-
-        # Agregar gráficas de torta
-       
-        df_3 = pd.DataFrame({'Nombre': nombre, 'Cantidad': cantidad})
-        df_4 = pd.DataFrame({'Nombre': nombre_efectivo, 'Cantidad': cantidades_efectivo})
-        orden_currency_cash = {
-            'Bolívares': 1,
-            'Dólares': 2,
-            'Pesos': 3
-        }
-        orden_metodos_de_pago = {
-            'Efectivo Bolívares': 1,
-            'Efectivo Dólares': 2,
-            'Efectivo Pesos': 3,
-            'Pago Móvil': 4,
-            'Punto de venta Bancamiga': 5,
-            'Punto de venta BNC': 6,
-            'Punto de venta Bicentenario': 7,
-            'Ventag': 8,
-            'VenVías': 9,
-            'Cobretag': 10,
-            'Pago Directo': 11,
-            'Pago Directo Bluetooth': 12,
-            'Exonerado': 13
-        }
-        if 'Ventag' not in df_3['Nombre'].values:
-            df_3.loc[len(df_3.index)] = ['Ventag', 0] 
-        if 'VenVías' not in df_3['Nombre'].values:
-            df_3.loc[len(df_3.index)] = ['VenVías', 0] 
-        if 'Cobretag' not in df_3['Nombre'].values:
-            df_3.loc[len(df_3.index)] = ['Cobretag', 0] 
-        if 'Pago Directo Bluetooth' not in df_3['Nombre'].values:
-            df_3.loc[len(df_3.index)] = ['Pago Directo Bluetooth', 0] 
-        if 'Punto de venta Bicentenario' not in df_3['Nombre'].values:
-            df_3.loc[len(df_3.index)] = ['Punto de venta Bicentenario', 0]
-        df_3['Orden'] = df_3['Nombre'].map(orden_metodos_de_pago)
-        df_3 = df_3.sort_values('Orden')
-
-        colorPalette = [
-                        '#FFC200', 
-                        '#FF7F50', 
-                        '#FF6B81',
-                        '#66CCCC', 
-                        '#6699CC', 
-                        '#FF8C00', 
-                        '#99CCFF', 
-                        '#66FF99',
-                        '#FF99CC', 
-                        '#CC99FF', 
-                        '#FF6348', 
-                        '#FF69B4', 
-                        '#FFFF99', 
-                        '#99FF99'  
-                    ]
-        
-        df_4['Orden'] = df_4['Nombre'].map(orden_currency_cash)
-
-
-        def my_autopct(pct):
-            return f'{pct:.1f}%' if pct > 4 else ''
-
-        ax[1, 0].pie(df_3['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5))
-        ax[1, 1].pie(df_4['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5))
-
-        # Ajustar el espacio entre subplots
-        plt.subplots_adjust(wspace=0.035, hspace=0.7)
-
-        ax[1, 0].set_xlim(-0.001, 1)
-        ax[1, 1].set_xlim(-2, 1)
-
-        # Añadir título y leyenda a los gráficos de torta
-        ax[1, 0].set_title('Porcentaje de Recaudación por Método de Pago', fontsize=16, loc='left', weight='bold', x=-2.3)
-        ax[1, 0].legend(loc='center left', labels=df_3['Nombre'], bbox_to_anchor=(-3.4, 0.5))
-
-        ax[1, 1].set_title('Porcentaje de Recaudación por Tipo de Moneda', fontsize=16, loc='left', weight='bold', x=-0.1)
-        ax[1, 1].legend(loc='center left', labels=df_4['Nombre'], bbox_to_anchor=(-0.135, 0.5))
-
-        # Define el color para las líneas
-        color_lineas1 = 'white'
-        color_lineas2 = 'grey'
-
-        # Añadir líneas horizontales entre las barras
-        for i in range(len(df_1_sorted)):
-            ax[0, 0].axhline(y=i-0.5, color=color_lineas2, linewidth=0.8, linestyle='--')
-            ax[0, 1].axhline(y=i-0.5, color=color_lineas2, linewidth=0.8, linestyle='--')
-
-        # Añadir una línea al borde de la gráfica
-        for i in range(2):
-            for j in range(2):
-                ax[i, j].spines['top'].set_color(color_lineas1)
-                ax[i, j].spines['right'].set_color(color_lineas1)
-                ax[i, j].spines['bottom'].set_color(color_lineas2)
-                ax[i, j].spines['left'].set_color(color_lineas2)
-
-        # Mostramos el gráfico
-        fig.savefig(bio, format="png", bbox_inches='tight')
-        img_encoded = base64.b64encode(bio.getvalue()).decode()
-        with open("temp_img_chart_collected_per_payments.png", "wb") as f:
-            f.write(base64.b64decode(img_encoded))
-
-        self.set_font('Arial', 'B', 11.5)
-        self.set_fill_color(255,194,0)
-        self.set_text_color(40,40,40)
-        line_height = self.font_size * 2.5
-        self.cell(0, line_height, 'Gráficos de Métodos de Pago', border=0, align='L', fill=True, ln=1)
-
-        self.ln(5)
-        x_position = (216 - 180) / 2 
-
-        self.image("temp_img_chart_collected_per_payments.png", x=x_position, h=120, w=180)
-
-        os.remove("temp_img_chart_collected_per_payments.png")
-        self.ln(10)
-        
-    def barchart_vehicles_per_category(self):
-
-        tarifas = Tickets.get_vehicles_general(self.start_date, self.end_date)
-        
-        tarifas[1]["cantidad"] = tarifas[1]["cantidad"] + self.pago_directo_info[0]
-        tarifas[1]["monto"] = tarifas[1]["monto"] + self.pago_directo_info[1]
-        
-        cantidad = []
-        nombre = []
-        montos = []
-        for i in tarifas:
-            montos.append(tarifas[i]['monto'])
-            cantidad.append(tarifas[i]['cantidad'])
-            nombre.append(tarifas[i]['nombre'])
-
-        # Tus datos de 'tarifas' ya están en las listas 'cantidad' y 'nombre'
-        df = pd.DataFrame({'Nombre': nombre, 'Cantidad': cantidad})
-
-        orden_vehiculos = {
-            'Vehículo liviano': 1,
-            'Microbús': 2,
-            'Autobús': 3,
-            'Camión liviano': 4,
-            'Camión 2 ejes': 5,
-            'Camión 3 ejes': 6,
-            'Camión 4 ejes': 7,
-            'Camión 5 ejes': 8,
-            'Camión 6+ ejes': 9,
-            'Exonerado General': 10,
-            'Exonerado Ambulancia': 11,
-            'Exonerado Seguridad': 12,
-            'Exonerado Gobernación': 13,
-            'Exonerado PDVSA': 14
-        }
-        df['Orden'] = df['Nombre'].map(orden_vehiculos)
-        df_sorted = df.sort_values('Orden')
-
-        # Configuramos el tamaño de la figura
-        sns.set_style(style="whitegrid")
-        sns.set_context("notebook")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bio = BytesIO()        
-
-        # Creamos el gráfico de barras horizontales
-        sns.barplot(
-            x='Cantidad', 
-            y='Nombre', 
-            data=df_sorted,
-            color="#FFCB26",
-            saturation=1
-        )
-
-        # Calculamos el total para los porcentajes
-        total = sum(df_sorted['Cantidad'])
-
-        # Añadimos etiquetas de porcentaje al lado de cada barra
-        for index, value in enumerate(df_sorted['Cantidad']):
-            plt.text(10, index, f'{str(locale.format_string("%.f" ,value,True))} ({locale.format_string("%.2f",((value/total)*100),True)}%)', va='center')
-
-        # Creamos una función para formatear las etiquetas del eje x con separador de miles
-        def thousands(x, pos):
-            'The two args are the value and tick position'
-            return str(locale.format_string('%.f',x,True))
-
-        formatter = FuncFormatter(thousands)
-
-        # Aplicamos el formateador al eje x
-        plt.gca().xaxis.set_major_formatter(formatter)
-
-        # Eliminamos las etiquetas de los ejes si no son necesarias
-        plt.xlabel('Cantidad de pagos', fontsize=15)
-        plt.ylabel('Tarifas', fontsize=15)
-
-        # Añadimos un título y ajustamos el layout
-        plt.title(f'Tarifas por cantidad de pagos - {datetime.fromisoformat(self.start_date).strftime("%d/%m/%Y")} a {datetime.fromisoformat(self.end_date).strftime("%d/%m/%Y")}', fontsize=20)  # Puedes cambiarlo por el título que prefieras
-        plt.tight_layout()
-
-        # Mostramos el gráfico
-        fig.savefig(bio, format="png", bbox_inches='tight')
-        img_encoded = base64.b64encode(bio.getvalue()).decode()
-        with open("temp_img_barchart_.png", "wb") as f:
-            f.write(base64.b64decode(img_encoded))
-        self.ln(5)
-        self.image("temp_img_barchart_.png", h=105, w=180)
-
-        os.remove("temp_img_barchart_.png")
-
-        self.ln(5)
-
-        # Tus datos de 'tarifas' ya están en las listas 'cantidad' y 'nombre'
-        df = pd.DataFrame({'Nombre': nombre, 'Monto': montos})
-
-        orden_vehiculos = {
-            'Vehículo liviano': 1,
-            'Microbús': 2,
-            'Autobús': 3,
-            'Camión liviano': 4,
-            'Camión 2 ejes': 5,
-            'Camión 3 ejes': 6,
-            'Camión 4 ejes': 7,
-            'Camión 5 ejes': 8,
-            'Camión 6+ ejes': 9,
-            'Exonerado General': 10,
-            'Exonerado Ambulancia': 11,
-            'Exonerado Seguridad': 12,
-            'Exonerado Gobernación': 13,
-            'Exonerado PDVSA': 14
-        }
-        df['Orden'] = df['Nombre'].map(orden_vehiculos)
-        df_sorted = df.sort_values('Orden')
-        # Configuramos el tamaño de la figura
-
-        sns.set_style(style="whitegrid")
-        sns.set_context("notebook")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bio = BytesIO()        
-
-        # Creamos el gráfico de barras horizontales
-        sns.barplot(
-            x='Monto', 
-            y='Nombre', 
-            data=df_sorted,
-            color="#FFCB26",
-            saturation=1
-        )
-
-
-        # Calculamos el total para los porcentajes
-        total = sum(df_sorted['Monto'])
-
-        # Añadimos etiquetas de porcentaje al lado de cada barra
-        for index, value in enumerate(df_sorted['Monto']):
-            plt.text(120, index, f'Bs. {str(locale.format_string("%.2f" ,value,True))} ({locale.format_string("%.2f",((value/total)*100),True )}%)', va='center')
-
-        # Creamos una función para formatear las etiquetas del eje x con separador de miles
-        def thousands(x, pos):
-            'The two args are the value and tick position'
-            return str(locale.format_string('%.2f',x,True))
-
-        formatter = FuncFormatter(thousands)
-
-        # Aplicamos el formateador al eje x
-        plt.gca().xaxis.set_major_formatter(formatter)
-
-        # Eliminamos las etiquetas de los ejes si no son necesarias
-        plt.xlabel('Montos de pagos', fontsize=15)
-        plt.ylabel('Tarifas', fontsize=15)
-        # Añadimos un título y ajustamos el layout
-        plt.title(f'Tarifas por monto de pagos - {datetime.fromisoformat(self.start_date).strftime("%d/%m/%Y")} a {datetime.fromisoformat(self.end_date).strftime("%d/%m/%Y")}', fontsize=20)  # Puedes cambiarlo por el título que prefieras
-        plt.tight_layout()
-
-        # Mostramos el gráfico
-        #fig.savefig(bio, format="png", bbox_inches='tight')
-        #img_encoded = base64.b64encode(bio.getvalue()).decode()
-        #with open("temp_img_barchart_collected_per_vehicles.png", "wb") as f:
-         #   f.write(base64.b64decode(img_encoded))
-        #self.ln(5)
-        #self.image("temp_img_barchart_collected_per_vehicles.png", h=105, w=180)
-
-        #os.remove("temp_img_barchart_collected_per_vehicles.png")
-        #self.ln(10)
-
-    def barchart_payment_types(self):
-
-        metodos_pago_information = Payments.get_payment_type(self.start_date, self.end_date)
-        metodos_pago_information
-
-        metodos_pago_information[3]["pg"] = {
-                                                "name":"Pago Directo Bluetooth",
-                                                "amount":self.pago_directo_info[1],
-                                                "num_transactions":self.pago_directo_info[0],
-                                                "amount_pivoted":self.pago_directo_info[1]
-                                            } 
-        
-        cantidad = []
-        nombre = []
-        montos = []
-        for key,currencies in metodos_pago_information.items():
-            if isinstance(currencies, dict):
-                for key_2, payment_type in currencies.items():
-                    if (((key == 1 or key == 2) and key_2 == 1) or key == 3) and isinstance(payment_type, dict):
-                        cantidad.append(payment_type['num_transactions'])
-                        nombre.append(payment_type['name'])
-                        montos.append(payment_type['amount_pivoted'])
-                        
-
-        # Tus datos de 'tarifas' ya están en las listas 'cantidad' y 'nombre'
-        df = pd.DataFrame({'Nombre': nombre, 'Cantidad': cantidad})
-
-        orden_metodos_de_pago = {
-            'Efectivo Bolívares': 1,
-            'Efectivo Dólares': 2,
-            'Efectivo Pesos': 3,
-            'Pago Móvil': 4,
-            'Punto de venta Bancamiga': 5,
-            'Punto de venta BNC': 6,
-            'Punto de venta Bicentenario': 7,
-            'Ventag': 8,
-            'VenVías': 9,
-            'Cobretag': 10,
-            'Pago Directo': 11,
-            'Pago Directo Bluetooth': 12,
-            'Exonerado': 13
-        }
-        df['Orden'] = df['Nombre'].map(orden_metodos_de_pago)
-        df_sorted = df.sort_values('Orden')
-
-        # Configuramos el tamaño de la figura
-        sns.set_style(style="whitegrid")
-        sns.set_context("notebook")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bio = BytesIO()        
-
-        # Creamos el gráfico de barras horizontales
-        sns.barplot(
-            x='Cantidad', 
-            y='Nombre', 
-            data=df_sorted,
-            color="#FFCB26",
-            saturation=1
-        )
-
-        # Calculamos el total para los porcentajes
-        total = sum(df_sorted['Cantidad'])
-
-        # Añadimos etiquetas de porcentaje al lado de cada barra
-        for index, value in enumerate(df_sorted['Cantidad']):
-            plt.text(10, index, f'{str(locale.format_string("%.f" ,value,True))} ({locale.format_string("%.2f",((value/total)*100),True)}%)', va='center')
-
-        # Creamos una función para formatear las etiquetas del eje x con separador de miles
-        def thousands(x, pos):
-            'The two args are the value and tick position'
-            return str(locale.format_string('%.f',x,True))
-
-        formatter = FuncFormatter(thousands)
-
-        # Aplicamos el formateador al eje x
-        plt.gca().xaxis.set_major_formatter(formatter)
-
-        # Eliminamos las etiquetas de los ejes si no son necesarias
-        plt.xlabel('Cantidad de pagos', fontsize=15)
-        plt.ylabel('Métodos de pago', fontsize=15)
-
-        # Añadimos un título y ajustamos el layout
-        plt.title(f'Métodos de pago por cantidad de pagos - {datetime.fromisoformat(self.start_date).strftime("%d/%m/%Y")} a {datetime.fromisoformat(self.end_date).strftime("%d/%m/%Y")}', fontsize=20)  # Puedes cambiarlo por el título que prefieras
-        plt.tight_layout()
-
-        # Mostramos el gráfico
-        fig.savefig(bio, format="png", bbox_inches='tight')
-        img_encoded = base64.b64encode(bio.getvalue()).decode()
-        with open("temp_img_barchart_payment_type_quantity.png", "wb") as f:
-            f.write(base64.b64decode(img_encoded))
-        self.ln(5)
-        self.image("temp_img_barchart_payment_type_quantity.png", h=105, w=180)
-
-        os.remove("temp_img_barchart_payment_type_quantity.png")
-
-        self.ln(5)
-
-        # Tus datos de 'tarifas' ya están en las listas 'cantidad' y 'nombre'
-        df = pd.DataFrame({'Nombre': nombre, 'Monto': montos})
-
-        orden_metodos_de_pago = {
-            'Efectivo Bolívares': 1,
-            'Efectivo Dólares': 2,
-            'Efectivo Pesos': 3,
-            'Pago Móvil': 4,
-            'Punto de venta Bancamiga': 5,
-            'Punto de venta BNC': 6,
-            'Punto de venta Bicentenario': 7,
-            'Ventag': 8,
-            'VenVías': 9,
-            'Cobretag': 10,
-            'Pago Directo': 11,
-            'Pago Directo Bluetooth': 12,
-            'Exonerado': 13
-        }
-        df['Orden'] = df['Nombre'].map(orden_metodos_de_pago)
-        df_sorted = df.sort_values('Orden')
-        # Configuramos el tamaño de la figura
-
-        sns.set_style(style="whitegrid")
-        sns.set_context("notebook")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bio = BytesIO()        
-
-        # Creamos el gráfico de barras horizontales
-        sns.barplot(
-            x='Monto', 
-            y='Nombre', 
-            data=df_sorted,
-            color="#FFCB26",
-            saturation=1
-        )
-
-
-        # Calculamos el total para los porcentajes
-        total = sum(df_sorted['Monto'])
-
-        # Añadimos etiquetas de porcentaje al lado de cada barra
-        for index, value in enumerate(df_sorted['Monto']):
-            plt.text(120, index, f'Bs. {str(locale.format_string("%.2f" ,value,True))} ({locale.format_string("%.2f",((value/total)*100),True )}%)', va='center')
-
-        # Creamos una función para formatear las etiquetas del eje x con separador de miles
-        def thousands(x, pos):
-            'The two args are the value and tick position'
-            return str(locale.format_string('%.2f',x,True))
-
-        formatter = FuncFormatter(thousands)
-
-        # Aplicamos el formateador al eje x
-        plt.gca().xaxis.set_major_formatter(formatter)
-
-        # Eliminamos las etiquetas de los ejes si no son necesarias
-        plt.xlabel('Montos de pagos', fontsize=15)
-        plt.ylabel('Métodos de pago', fontsize=15)
-        # Añadimos un título y ajustamos el layout
-        plt.title(f'Métodos de pago por monto de pagos - {datetime.fromisoformat(self.start_date).strftime("%d/%m/%Y")} a {datetime.fromisoformat(self.end_date).strftime("%d/%m/%Y")}', fontsize=20)  # Puedes cambiarlo por el título que prefieras
-        plt.tight_layout()
-
-        # Mostramos el gráfico
-        fig.savefig(bio, format="png", bbox_inches='tight')
-        img_encoded = base64.b64encode(bio.getvalue()).decode()
-        with open("temp_img_barchart_collected_per_payment_type.png", "wb") as f:
-            f.write(base64.b64decode(img_encoded))
-        self.ln(5)
-        self.image("temp_img_barchart_collected_per_payment_type.png", h=105, w=180)
-
-        os.remove("temp_img_barchart_collected_per_payment_type.png")
-        self.ln(10)
-
-    def piechart_payment_types(self):
-        metodos_pago_information = Payments.get_payment_type(self.start_date, self.end_date)
-        metodos_pago_information
-
-        
-
-        metodos_pago_information[3]["pg"] = {
-                                                "name":"Pago Directo Bluetooth",
-                                                "amount":self.pago_directo_info[1],
-                                                "num_transactions":self.pago_directo_info[0],
-                                                "amount_pivoted":self.pago_directo_info[1]
-                                            } 
-        
-        metodos_pago_information[3]['num_transactions'] = metodos_pago_information[3]['num_transactions'] + self.pago_directo_info[0]
-        metodos_pago_information[3]['amount'] = metodos_pago_information[3]['amount'] + self.pago_directo_info[1]
-        metodos_pago_information[3]['amount_pivoted'] = metodos_pago_information[3]['amount_pivoted'] + self.pago_directo_info[1]
-
-
-        cantidad = []
-        nombre = []
-        montos = []
-        cantidades_efectivo = []
-        montos_efectivo = []
-        nombre_efectivo = []
-        for key,currencies in metodos_pago_information.items():
-            if isinstance(currencies, dict):
-                for key_2, payment_type in currencies.items():
-                    if (((key == 1 or key == 2) and key_2 == 1) or key == 3) and isinstance(payment_type, dict):
-                        cantidad.append(payment_type['num_transactions'])
-                        nombre.append(payment_type['name'])
-                        montos.append(payment_type['amount_pivoted'])
-        cantidades_efectivo.append(metodos_pago_information[3]['num_transactions'])
-        cantidades_efectivo.append(metodos_pago_information[2]['num_transactions'])
-        cantidades_efectivo.append(metodos_pago_information[1]['num_transactions'])
-
-        montos_efectivo.append(metodos_pago_information[3]['amount_pivoted'])
-        montos_efectivo.append(metodos_pago_information[2]['amount_pivoted'])
-        montos_efectivo.append(metodos_pago_information[1]['amount_pivoted'])
-
-        nombre_efectivo.append('Efectivo Bolívares')
-        nombre_efectivo.append('Efectivo Dólares')
-        nombre_efectivo.append('Efectivo Pesos')
-
-        # Tus datos de 'tarifas' ya están en las listas 'cantidad' y 'nombre'
-        df = pd.DataFrame({'Nombre': nombre, 'Cantidad': cantidad})
-        orden_metodos_de_pago = {
-            'Efectivo Bolívares': 1,
-            'Efectivo Dólares': 2,
-            'Efectivo Pesos': 3,
-            'Pago Móvil': 4,
-            'Punto de venta Bancamiga': 5,
-            'Punto de venta BNC': 6,
-            'Punto de venta Bicentenario': 7,
-            'Ventag': 8,
-            'VenVías': 9,
-            'Cobretag': 10,
-            'Pago Directo': 11,
-            'Pago Directo Bluetooth': 12,
-            'Exonerado': 13
-        }
-        df = pd.DataFrame({'Nombre': nombre, 'Cantidad': cantidad})
-        if 'Ventag' not in df['Nombre'].values:
-            df.loc[len(df.index)] = ['Ventag', 0] 
-        if 'VenVías' not in df['Nombre'].values:
-            df.loc[len(df.index)] = ['VenVías', 0] 
-        if 'Cobretag' not in df['Nombre'].values:
-            df.loc[len(df.index)] = ['Cobretag', 0] 
-        if 'Pago Directo Bluetooth' not in df['Nombre'].values:
-            df.loc[len(df.index)] = ['Pago Directo Bluetooth', 0] 
-        if 'Punto de venta Bicentenario' not in df['Nombre'].values:
-            df.loc[len(df.index)] = ['Punto de venta Bicentenario', 0] 
-        df['Orden'] = df['Nombre'].map(orden_metodos_de_pago)
-        df = df.sort_values('Orden')
-        colorPalette = [
-                '#FFC200', 
-                '#FF7F50', 
-                '#FF6B81',
-                '#66CCCC', 
-                '#6699CC', 
-                '#FF8C00', 
-                '#99CCFF', 
-                '#66FF99',
-                '#FF99CC', 
-                '#CC99FF', 
-                '#FF6348', 
-                '#FF69B4', 
-                '#FFFF99', 
-                '#99FF99'  
-        ]
-
-
-        fig, ax = plt.subplots(figsize=(8, 5), subplot_kw=dict(aspect="equal"))
-        ax.pie(
-                df['Cantidad'], 
-                colors=colorPalette,
-                autopct=lambda p: f'{str(locale.format_string("%.2f" ,p,True))}%' if p >=3.5 else ''
-            )
-
-        plt.legend(
-            loc='center left', 
-            labels=df['Nombre'],
-            bbox_to_anchor=(1, 0, 0.5, 1)
-        )
-
-        plt.title('Porcentaje de Métodos de Pago', fontsize=20)
-        sns.set_context('notebook')
-
-        bio = BytesIO()
-        fig.savefig(bio, format="png", bbox_inches='tight')
-        img_encoded = base64.b64encode(bio.getvalue()).decode()
-        with open("temp_img_piechart_payment_type.png", "wb") as f:
-            f.write(base64.b64decode(img_encoded))
-        self.ln(5)
-        self.set_x(35)
-        self.image("temp_img_piechart_payment_type.png", h=90, w=140)
-
-        os.remove("temp_img_piechart_payment_type.png")
-
-        self.ln(5)
-
-        # Tus datos de 'tarifas' ya están en las listas 'cantidad' y 'nombre'
-        df = pd.DataFrame({'Nombre': nombre_efectivo, 'Cantidad': cantidades_efectivo})
-        orden_currency_cash = {
-            'Efectivo Bolívares': 1,
-            'Efectivo Dólares': 2,
-            'Efectivo Pesos': 3
-        }
-
-        df['Orden'] = df['Nombre'].map(orden_currency_cash)
-        colorPalette = [
-                '#FFC200', 
-                '#FF7F50', 
-                '#66FF99'
-        ]
-
-
-        fig, ax = plt.subplots(figsize=(8, 5), subplot_kw=dict(aspect="equal"))
-        ax.pie(
-                df['Cantidad'], 
-                colors=colorPalette,
-                autopct=lambda p: f'{str(locale.format_string("%.2f" ,p,True))}%' if p >=3.5 else ''
-            )
-
-        plt.legend(
-            loc='center left', 
-            labels=df['Nombre'],
-            bbox_to_anchor=(1, 0, 0.5, 1)
-        )
-
-        plt.title('Porcentaje de pagos por moneda', fontsize=20)
-        sns.set_context('notebook')
-
-        bio = BytesIO()
-        fig.savefig(bio, format="png", bbox_inches='tight')
-        img_encoded = base64.b64encode(bio.getvalue()).decode()
-        with open("temp_img_piechart_cash.png", "wb") as f:
-            f.write(base64.b64decode(img_encoded))
-        self.ln(10)
-        self.set_x(35)
-        self.image("temp_img_piechart_cash.png", h=95, w=130)
-
-        os.remove("temp_img_piechart_cash.png")
-
-        self.ln(20)
-    
-    def general_info(self, report_data):
-        """
-        Genera y formatea la sección de información general del reporte.
-        """
         # Obtenemos los datos por parámetro
         json_data = report_data
 
@@ -1985,22 +315,298 @@ class Report_Generator(FPDF):
             # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
             first_data_item = json_data.get("data", [])[0]  # Obtener el primer elemento de la lista "data"
             results = first_data_item.get("data", {}).get("results", {})
-            general_data = results.get("general_data", {})
+            general_data = results.get("fechas", {})
+    
+            fechas = []
+            pagos = []
+            amount = []
 
-            # Extraemos los datos relevantes, con valores por defecto en caso de que falten
-            total_payments_bs = general_data.get("total_payments_bs", 0)
-            total_payments_usd = general_data.get("total_payments_usd", 0)
-            vehicles = general_data.get("vehicles", 0)
+            # Procesar las filas de datos
+            for date, details in general_data.items():
+                if details.get("pagos", True):
+                    pagos_daily = details.get("pagos", 0)
+                    amount_daily = details.get("monto", 0)
+                else:
+                    pagos_daily = 0
+                    amount_daily = 0
 
-            # Formateamos los datos finales para mostrarlos en el reporte
-            finals = [
+
+                # Append the processed data to the respective lists
+                fechas.append(dt.datetime.strptime(date,'%Y-%m-%d').date())
+                pagos.append(pagos_daily)
+                amount.append(amount_daily)
+            
+            # Formatter for y-axis labels
+            formatter = FuncFormatter(self.format_dot_comma)
+
+            # Create a DataFrame from the processed data
+            df = pd.DataFrame({'Fecha': fechas, 'Pagos': pagos, 'Monto': amount})
+            df['Fecha'] = pd.to_datetime(df['Fecha'], format='%d-%m-%Y')
+
+            # Calcular la diferencia en días entre la primera y última fecha
+            dias_totales = (df['Fecha'].max() - df['Fecha'].min()).days
+            
+            if dias_totales > 3:
+                
+                # Definir los límites para los bindings
+                limite_semanas = 30
+                limite_meses = 90
+                
+                # Set up the plot style and context
+                sns.set_style(style="whitegrid")
+                sns.set_context("notebook")
+                plt.rcParams.update({'font.family': 'Arial'}) 
+                fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
+                bio = BytesIO() 
+
+                # Set labels for the axes
+                plt.xlabel('Rango de fechas', fontsize=12, fontweight='bold', labelpad=10)
+                ax[0].set_ylabel('Cantidad de Vehículos', fontsize=12, fontweight='bold')  # Modifica el tamaño y establece negrita 
+                ax[1].set_ylabel('Monto Recolectado', fontsize=12, fontweight='bold')    
+
+                # Convert 'Fecha' column to datetime
+                df['Fecha'] = pd.to_datetime(df['Fecha'], format='%d-%m-%Y')
+                
+                # Calculate the difference in days between the last two dates
+                ultima_fecha = df['Fecha'].iloc[-1]
+                penultima_fecha = df['Fecha'].iloc[-2]
+                diferencia_dias = (ultima_fecha - penultima_fecha).days 
+
+                # Set y-axis formatters
+                ax[0].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
+                ax[1].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'Bs, {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
+
+                # Handle different time ranges
+                if dias_totales < 8:
+                    # For less than 8 days, plot by weekdays
+                    plt.xlabel('Rango de días', fontsize=12)
+                    weekdays = {
+                        0:'Lunes',
+                        1:'Martes',
+                        2:'Miércoles',
+                        3:'Jueves',
+                        4:'Viernes',
+                        5:'Sábado',
+                        6:'Domingo'
+                    }
+                    plt.xticks( rotation=45, ha='center')
+
+                    df['Weekday'] = df['Fecha'].apply(lambda x: weekdays[x.weekday()])
+                    sns.lineplot( ax=ax[0],x=df['Weekday'].to_list(), y=df['Pagos'].to_list(), color="#FFC200", linewidth=2.5)
+                    sns.lineplot( ax=ax[1],x=df['Weekday'].to_list(), y=df['Monto'].to_list(), color="#FF7F50", linewidth=2.5)
+                    # ax[0].set_xticks( df_semanas['Weekday'].to_list() )
+                    # ax[0].set_xticks( df_semanas['Fecha'].to_list() )
+                    ax[0].set_xticklabels([])
+                    # ax[1].set_xticks( df_semanas['Fecha'].to_list() )
+                    plt.xticks( rotation=45, ha='center')
+                    ax[0].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
+                    ax[1].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'Bs, {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
+                    
+
+                elif dias_totales <= limite_semanas:
+                
+                    # For up to 30 days, plot by individual dates
+                    ax[0].xaxis.set_major_locator(ticker.MaxNLocator(9))
+                    ax[1].xaxis.set_major_locator(ticker.MaxNLocator(9))
+                    df['Fecha'] = df['Fecha'].dt.strftime('%d-%m-%Y')
+                    sns.lineplot(ax=ax[0], x=df['Fecha'].to_list(), y=df['Pagos'].to_list(), color="#FFC200", linewidth=2.5)
+                    sns.lineplot(ax=ax[1], x=df['Fecha'].to_list(), y=df['Monto'].to_list(), color="#FF7F50", linewidth=2.5)
+                    ax[0].set_xticklabels([])
+                    plt.xticks( rotation=45, ha='center')
+                    ax[0].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
+                    ax[1].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'Bs, {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
+                    
+                    
+                elif dias_totales > limite_semanas and dias_totales < limite_meses:
+            
+                    # For more than 30 days but less than 90 days, plot by weeks
+                    df_semanas = df.groupby(pd.Grouper(key='Fecha', freq='W-MON')).sum().reset_index()
+                    df_semanas['Fecha'] = df_semanas['Fecha'].dt.strftime('%d-%m-%Y')
+                    df['Fecha'] = df['Fecha'].dt.strftime('%d-%m-%Y')
+                    
+                    if diferencia_dias < 3:
+                        df_semanas['Fecha'].to_list().pop(-2)
+
+                    sns.lineplot(ax=ax[0], x=df['Fecha'].to_list(), y=df['Pagos'].to_list(), color="#FFC200", linewidth=2.5)
+                    sns.lineplot(ax=ax[1], x=df['Fecha'].to_list(), y=df['Monto'].to_list(), color="#FF7F50", linewidth=2.5)
+                    
+                    ax[0].set_xticks( df_semanas['Fecha'].to_list() )
+                    ax[0].set_xticklabels([])
+                    ax[1].set_xticks( df_semanas['Fecha'].to_list() )
+                    plt.xticks( rotation=45, ha='center')
+                    ax[0].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
+                    ax[1].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'Bs, {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
+                    
+                
+
+                elif dias_totales >= limite_meses:
+                    # For more than 90 days, plot by months
+                    
+                    df_meses = df.groupby(pd.Grouper(key='Fecha', freq='ME')).sum().reset_index()
+                    df_meses['Fecha'] = df_meses['Fecha'].dt.strftime('%d-%m-%Y')
+                    df['Fecha'] = df['Fecha'].dt.strftime('%d-%m-%Y')
+                    months = []
+                    for date in df_meses['Fecha'].to_list():
+                        if date in df['Fecha'].to_list():
+                            months.append(date)
+                    if df['Fecha'].to_list()[0] not in months:
+                        months.insert(0, df['Fecha'].to_list()[0])
+                    if df['Fecha'].to_list()[-1] not in months:
+                        months.append( df['Fecha'].to_list()[-1])
+
+                    if diferencia_dias < 3:
+                        months.pop(-2)
+                    
+                        
+                    sns.lineplot(x=df['Fecha'].to_list(), y=df['Pagos'].to_list(), color="#FFC200", linewidth=2.5, ax=ax[0])
+                    sns.lineplot(x=df['Fecha'].to_list(), y=df['Monto'].to_list(), color="#FF7F50", linewidth=2.5, ax=ax[1])
+                    ax[0].set_xticks(months)
+                    ax[0].set_xticklabels([])
+                    ax[1].set_xticks(months)
+                    plt.xticks( rotation=45, ha='center')
+                    plt.gca().yaxis.set_major_formatter(formatter)
+                    ax[0].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
+                    ax[1].yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'Bs, {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')))
+                    
+                # Save the figure to a BytesIO object - In memory
+                fig.savefig(bio, format="png", bbox_inches='tight')
+                img_encoded = base64.b64encode(bio.getvalue()).decode()
+
+                # Save the image to a temporary file
+                with open("temp_img_line_collected.png", "wb") as f:
+                    f.write(base64.b64decode(img_encoded))
+
+                # Add the image to the report
+                self.ln(5)
+                self.set_font('Arial', 'B', 11.5)
+                self.set_fill_color(255,194,0)
+                self.set_text_color(40,40,40)
+                line_height = self.font_size * 2.5
+                self.ln(5)
+                self.cell(0, line_height, 'Gráficos de Accesos e Ingresos por Fechas', border=0, align='L', fill=True, ln=1)
+                self.image("temp_img_line_collected.png", h=140, w=180)
+
+                # Remove the temporary file
+                os.remove("temp_img_line_collected.png")
+                self.ln(10)
+        except: 
+            print("Error al procesar los datos y generar el gráfico de líneas.")
+            return
+
+    def general_info(self, report_data):
+        """
+        Genera y formatea la sección de información general del reporte.
+        """
+        # Obtenemos los datos por parámetro
+        json_data = report_data
+
+        # Verificamos si la respuesta es válida
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+
+        
+        # Procesar los datos obtenidos
+        try:
+            # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
+
+            if self.toll:
+              
+              # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+              first_data_item = json_data.get("data", [])[0]
+              results = first_data_item.get("data", {}).get("results", {})
+              general_data = results.get("general_data", {})
+
+              total_payments_bs = general_data.get("total_payments_bs", 0)
+              total_payments_usd = general_data.get("total_payments_usd", 0)
+              vehicles = general_data.get("vehicles", 0)
+              
+              #Datos de los porcentajes extraidos de los configs
+              configs = first_data_item.get("config", {})
+              fnt_percentage = configs.get("fnt_percentage", 0)
+              state_percentage = configs.get("gob_percentage", 0)
+              venpax_percentage = configs.get("venpax_percentage", 0)
+              
+              #Fondo nacional del transporte
+              total_fn_bs = total_payments_bs * fnt_percentage / 100
+              total_fn_usd = total_payments_usd * fnt_percentage / 100
+              
+              #Gobernacion del estado
+              total_state_bs = total_payments_bs * state_percentage / 100
+              total_state_usd = total_payments_usd * state_percentage / 100
+              
+              #Venpax
+              venpax_bs = total_payments_bs * venpax_percentage / 100
+              venpax_usd = total_payments_usd * venpax_percentage / 100
+              
+              finals = [
                 ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
                 (
-                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
-                    f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
-                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
+                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
+                    f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",
+                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"
+                ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.toll} ({state_percentage}%)', f'Venpax {self.toll} ({venpax_percentage}%)'),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
+                    f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
+                    f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"
                 ),
-            ]
+                (
+                    f"${locale.format_string('%.2f', total_fn_usd, grouping=True)}",
+                    f"${locale.format_string('%.2f', total_state_usd, grouping=True)}",
+                    f"${locale.format_string('%.0f', venpax_usd, grouping=True)}" 
+                )
+              ]
+            
+            else:
+              
+              # Extraer totales por estado en Bs y USD
+              total_state = json_data.get("total_por_estado", {})
+              state_configs = json_data.get("configs_por_estado", {})
+
+              # Calculo total para Venpax en Bs y USD en cada estado
+              venpax_totales = {}
+              for state, totales in total_state.items():
+                  config = state_configs.get(state, {})
+                  venpax_percentage = config.get("venpax_percentage", 0)
+                  venpax_totales[state] = {
+                      "total_bs_venpax": totales.get("VES", 0) * venpax_percentage / 100,
+                      "total_usd_venpax": totales.get("USD", 0) * venpax_percentage / 100
+                  }
+
+              # Extraer datos generales
+              general_data = json_data["data"][0]["data"]["results"]["general_data"]
+              total_payments_bs = general_data.get("total_payments_bs", 0)
+              total_payments_usd = general_data.get("total_payments_usd", 0)
+              vehicles = general_data.get("vehicles", 0)
+
+              # Renderizar tabla de resultados dinámicamente
+              finals = [
+                  ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
+                  (
+                      f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                      f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",   # Separador de miles y 2 decimales
+                      f"{locale.format_string('%.0f', vehicles, grouping=True)}"               # Separador de miles sin decimales
+                  )
+              ]
+
+              # Procesar los totales de Venpax para todos los estados
+              states = list(venpax_totales.keys())
+              vetaesn_heads = tuple(f'Venpax Est. {state}' for state in states)
+              venpax_bs_finals = tuple(
+                  f"Bs.{locale.format_string('%.2f', venpax_totales[state]['total_bs_venpax'], grouping=True)}"
+                  for state in states
+              )
+              venpax_usd_finals = tuple(
+                  f"${locale.format_string('%.2f', venpax_totales[state]['total_usd_venpax'], grouping=True)}"
+                  for state in states
+              )
+
+              # Añadir los resultados a la tabla
+              finals.append(vetaesn_heads)
+              finals.append(venpax_bs_finals)
+              finals.append(venpax_usd_finals)
+ 
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
             return
@@ -2008,19 +614,23 @@ class Report_Generator(FPDF):
         # Formatear los datos y añadirlos al PDF
         for j, row in enumerate(finals):
             for datum in row:
-                if j == 0:  # Primera fila: títulos
-                    self.set_font('Arial', 'B', 13)
+                if j == 0 or j == 2:
+                    self.set_font('Arial', 'B', 10)
                     self.set_fill_color(255, 194, 0)
                     self.set_text_color(40, 40, 40)
-                elif j == 1:  # Segunda fila: datos
+                elif j == 1 or j == 3:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                elif j == 4 or 6:
                     self.set_font('Arial', 'B', 12)
                     self.set_fill_color(255, 255, 255)
                     self.set_text_color(40, 40, 40)
 
-                # Tamaño de la celda y contenido
+                # Set the cell size and add the data to the report
+                # The cell size is calculated based on the number of columns in the row
                 self.cell((self.w - 20) / len(row), 11, datum, 0, 0, 'C', fill=True)
-
-            self.ln(11)  # Salto de línea tras cada fila
+            self.ln(11)
 
         # Resetear el formato de texto al predeterminado
         self.set_font('Arial', '', 12)
@@ -2502,57 +1112,38 @@ class Report_Generator(FPDF):
             # Inicializar variables para los totales
             total_num_transactions = 0
             total_ves_amount = 0
-
-            # Orden específico de los métodos de pago
-            payment_order = [
-                "Efectivo Bolívares", "Efectivo Dólares", "Efectivo Pesos", "Pago Móvil",
-                "Punto de venta Bancamiga", "Punto de venta BNC", "Punto de venta Bicentenario",
-                "Ventag", "VenVías", "Cobretag", "Pago Directo Bluetooth", "Exonerado", "Diferencial Cambiario"
-            ]
-
+            
             # Lista para almacenar los datos de la tabla
             table_data = [["Método de Pago", "N° Transacciones", "% Transacciones", "Monto Bs", "% Monto"]]
 
-            # Calcular totales generales
-            for group_key, group in general_data.items():
-                if isinstance(group, dict):
-                    for payment_key, data in group.items():
-                        if isinstance(data, dict):
-                            total_num_transactions += data.get("num_transactions", 0)
-                            total_ves_amount += data.get("amount_pivoted", 0)
-
             # Generar filas para cada método de pago en el orden definido
-            for payment_name in payment_order:
-                found = False
-                for group_key, group in general_data.items():
-                    if isinstance(group, dict):
-                        for payment_key, data in group.items():
-                            if isinstance(data, dict) and data.get("name") == payment_name:
-                                # Obtener valores de datos
-                                amount = data.get("num_transactions", 0)
-                                total = data.get("amount_pivoted", 0)
-                                percentage_transactions = (
-                                    (amount / total_num_transactions) * 100 if total_num_transactions else 0
-                                )
-                                percentage_amount_collected = (
-                                    (total / total_ves_amount) * 100 if total_ves_amount else 0
-                                )
+            
+            for key, payment_methods in general_data.items():
+              for inner_key, data in payment_methods.items():
+                  if isinstance(data, dict):
+                    if data.get("amount",0) != 0:
+                        num_transactions = data.get("num_transactions",0)
+                        total = data.get("amount_pivoted",0)
+                        payment_name = data.get("name", "") 
+                        percentage_transactions = (
+                        (num_transactions / total_num_transactions) * 100 if total_num_transactions else 0)
+                        percentage_amount_collected = ((total / total_ves_amount) * 100 if total_ves_amount else 0)
 
-                                # Agregar fila a la tabla
-                                table_data.append(
-                                    [
-                                        payment_name,
-                                        locale.format_string('%.0f', amount, grouping=True),
-                                        f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
-                                        locale.format_string('%.2f', total, grouping=True),
-                                        f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
-                                    ]
-                                )
-                                found = True
-                                break
-                    if found:
-                        break
-
+                        # Agregar fila a la tabla
+                        table_data.append(
+                            [
+                                payment_name,
+                                locale.format_string('%.0f', num_transactions, grouping=True),
+                                f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
+                                locale.format_string('%.2f', total, grouping=True),
+                                f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
+                            ]
+                        )
+                        
+                        # Totales
+                        total_num_transactions += data.get("num_transactions", 0)
+                        total_ves_amount += data.get("amount_pivoted", 0)
+   
             # Agregar fila de totales
             table_data.append([
                 "Totales",
@@ -2602,6 +1193,7 @@ class Report_Generator(FPDF):
         """
         # Obtener datos por parámetros
         json_data = report_data
+
         
         if not json_data:
             print("No se pudo obtener los datos del backend. No se generará el PDF.")
@@ -2621,42 +1213,53 @@ class Report_Generator(FPDF):
             if not general_data:
                 print("No se pudieron obtener los datos de métodos de pago. No se generará el reporte.")
                 return
-
-
+            
             # Preparar datos para el gráfico
             methods = []
             amounts = []
+            total_amounts = []
             transactions = []
+            percentage_transactions = []
+            percentage_amount = []
+            name = []
+            #Aqui itero para los metodos de pago
+            for x,y in general_data.items():
+                for w,z in y.items():
+                    if isinstance(z, dict):
+                        if z["name"] not in methods:
+                            methods.append(z["name"])
+                            amounts.append(z["num_transactions"])
+                            total_amounts.append(z["amount_pivoted"])
+                            transactions.append(z["num_transactions"])
+                            percentage_transactions.append(z["percentage_transactions"])
+            print(len(methods))
+            #Aqui itero para las monedas y sus stats
+            for x, y in general_data.items():
+                name.append(y["currency_name"])
+                percentage_amount.append(y["percentage_amount_collected"])
 
-            # Iterar sobre cada moneda y extraer datos
-            for currency_key in data:
-                for method_key in data[currency_key]:
-                    method_data = data[currency_key][method_key]
-                    if isinstance(method_data, dict):  # Asegurarse de que sea un diccionario
-                        methods.append(method_data["name"])
-                        amounts.append(method_data["amount"])
-                        transactions.append(method_data["num_transactions"])
-
+            
             df_1 = pd.DataFrame({'Nombre': methods, 'Cantidad': amounts})
-            df_2 = pd.DataFrame({'Nombre': methods, 'Monto': amounts})
-
+            df_2 = pd.DataFrame({'Nombre': methods, 'Monto': total_amounts})
             # Configuramos el tamaño de la figura
             bio = BytesIO() 
 
+            
+
             orden_metodos_de_pago = {
-            'Efectivo Bolívares': 1,
-            'Efectivo Dólares': 2,
-            'Efectivo Pesos': 3,
-            'Pago Móvil': 4,
-            'Punto de venta Bancamiga': 5,
-            'Punto de venta BNC': 6,
-            'Punto de venta Bicentenario': 7,
-            'Ventag': 8,
-            'VenVías': 9,
-            'Cobretag': 10,
-            'Pago Directo': 11,
-            'Pago Directo Bluetooth': 12,
-            'Exonerado': 13
+                'Efectivo Bolívares': 1,
+                'Efectivo Dólares': 2,
+                'Efectivo Pesos': 3,
+                'Pago Móvil': 4,
+                'Punto de venta Bancamiga': 5,
+                'Punto de venta BNC': 6,
+                'Punto de venta Bicentenario': 7,
+                'Ventag': 8,
+                'VenVías': 9,
+                'Cobretag': 10,
+                'Pago Directo': 11,
+                'Pago Directo Bluetooth': 12,
+                'Exonerado': 13
             }
             df_1['Orden'] = df_1['Nombre'].map(orden_metodos_de_pago)
             df_1_sorted = df_1.sort_values('Orden')
@@ -2666,7 +1269,7 @@ class Report_Generator(FPDF):
 
             # Configurar el tamaño de la figura y la fuente a Arial
             plt.rcParams.update({'font.family': 'Arial'})
-            fig, ax = plt.subplots(2, 2, figsize=(16, 12))
+            fig, ax = plt.subplots(2, 2, figsize=(16, 17))
 
             # Crear gráficos de barras horizontales
             sns.barplot(
@@ -2686,19 +1289,18 @@ class Report_Generator(FPDF):
                 saturation=1
             )
 
-            ax[0, 0].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
+            # Set tick positions first, then set the labels
+            ax[0, 0].set_xticks(ax[0, 0].get_xticks())  # Ensures the correct number of ticks are set
             ax[0, 0].set_xticklabels(ax[0, 0].get_xticklabels(), rotation=45, ha='center')
 
-            ax[0, 1].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
+            ax[0, 1].set_xticks(ax[0, 1].get_xticks())  # Ensures the correct number of ticks are set
             ax[0, 1].set_xticklabels(ax[0, 1].get_xticklabels(), rotation=45, ha='center')
+
 
             # Agregar títulos a cada gráfica
             ax[0, 0].set_title('Cantidad de Pagos por Método de Pago', fontsize=15, pad=20, loc='center', weight='bold')
             ax[0, 1].set_title('Monto de Pagos por Método de Pago', fontsize=15, pad=20, loc='center', weight='bold')
 
-            # Calcular el total para los porcentajes
-            total_cantidad = df_1_sorted['Cantidad'].sum()
-            total_monto = df_2_sorted['Monto'].sum()
 
             # Añadir etiquetas de porcentaje encima de cada barra
             for index, value in enumerate(df_1_sorted['Cantidad']):
@@ -2743,28 +1345,28 @@ class Report_Generator(FPDF):
                 ax[0, 1].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
 
             # Agregar gráficas de torta
-        
             df_3 = pd.DataFrame({'Nombre': methods, 'Cantidad': amounts})
-            df_4 = pd.DataFrame({'Nombre': nombre_efectivo, 'Cantidad': cantidades_efectivo})
+            df_4 = pd.DataFrame({'Nombre': name, 'Cantidad': percentage_amount})
             orden_currency_cash = {
                 'Bolívares': 1,
                 'Dólares': 2,
                 'Pesos': 3
             }
+
             orden_metodos_de_pago = {
-                'Efectivo Bolívares': 1,
-                'Efectivo Dólares': 2,
-                'Efectivo Pesos': 3,
-                'Pago Móvil': 4,
-                'Punto de venta Bancamiga': 5,
-                'Punto de venta BNC': 6,
-                'Punto de venta Bicentenario': 7,
-                'Ventag': 8,
-                'VenVías': 9,
-                'Cobretag': 10,
-                'Pago Directo': 11,
-                'Pago Directo Bluetooth': 12,
-                'Exonerado': 13
+            'Efectivo Bolívares': 1,
+            'Efectivo Dólares': 2,
+            'Efectivo Pesos': 3,
+            'Pago Móvil': 4,
+            'Punto de venta Bancamiga': 5,
+            'Punto de venta BNC': 6,
+            'Punto de venta Bicentenario': 7,
+            'Ventag': 8,
+            'VenVías': 9,
+            'Cobretag': 10,
+            'Pago Directo': 11,
+            'Pago Directo Bluetooth': 12,
+            'Exonerado': 13
             }
             if 'Ventag' not in df_3['Nombre'].values:
                 df_3.loc[len(df_3.index)] = ['Ventag', 0] 
@@ -2780,24 +1382,22 @@ class Report_Generator(FPDF):
             df_3 = df_3.sort_values('Orden')
 
             colorPalette = [
-                            '#FFC200', 
-                            '#FF7F50', 
-                            '#FF6B81',
-                            '#66CCCC', 
-                            '#6699CC', 
-                            '#FF8C00', 
-                            '#99CCFF', 
-                            '#66FF99',
-                            '#FF99CC', 
-                            '#CC99FF', 
-                            '#FF6348', 
-                            '#FF69B4', 
-                            '#FFFF99', 
-                            '#99FF99'  
-                        ]
-            
+                        '#FFC200', 
+                        '#FF7F50', 
+                        '#FF6B81',
+                        '#66CCCC', 
+                        '#6699CC', 
+                        '#FF8C00', 
+                        '#99CCFF', 
+                        '#66FF99',
+                        '#FF99CC', 
+                        '#CC99FF', 
+                        '#FF6348', 
+                        '#FF69B4', 
+                        '#FFFF99', 
+                        '#99FF99'  
+                    ]
             df_4['Orden'] = df_4['Nombre'].map(orden_currency_cash)
-
 
             def my_autopct(pct):
                 return f'{pct:.1f}%' if pct > 4 else ''
@@ -2854,559 +1454,11 @@ class Report_Generator(FPDF):
 
             os.remove("temp_img_chart_collected_per_payments.png")
             self.ln(10)
+
         
         except Exception as e:
             return {"message": f"Error interno al generar el reporte (manejo de métodos de pago): {str(e)}"}, 500
           
-    def general_by_currency(self):
-        """
-        Generates a detailed report of payments by currency.
-
-        This method retrieves payment data, processes it to calculate totals per currency,
-        and formats the data into a structured table. The table includes various financial metrics 
-        such as total transactions, amounts in Bolívares, exchange rates, and subtotals.
-
-        The table is then added to the report with appropriate formatting.
-
-        Attributes:
-        - self.start_date (str): The start date of the report.
-        - self.end_date (str): The end date of the report.
-
-        Returns:
-        - None
-        """
-
-        payments_information = Payments.get_payments_currency_general(start_date=self.start_date, end_date=self.end_date)
-
-        subtitle = 'Resumen de Divisas General'
-        self.subtitle_centered(subtitle)
-    
-        # Set table header formatting
-        self.set_fill_color(255,194,0)
-        self.set_text_color(40,40,40)
-        self.set_font('Arial', 'B', 8)
-        self.cell((self.w-20)/6, 5, 'Nombre', 0, 0, 'C', fill=True)
-        self.cell((self.w-20)/6, 5, 'Fecha', 0, 0, 'C', fill=True)
-        self.cell((self.w-20)/6, 5, 'Cantidad', 0, 0, 'C', fill=True)
-        self.cell((self.w-20)/6, 5, 'Bolívares', 0, 0, 'C', fill=True)
-        self.cell((self.w-20)/6, 5, 'Tasa', 0, 0, 'C', fill=True)
-        self.cell((self.w-20)/6, 5, 'Subtotal', 0, 1, 'C', fill=True)
-
-        # Set table body formatting
-        self.set_text_color(0,0,0)
-        self.set_fill_color(255,255,255)
-        self.set_font('Arial', '', 8)
-        info_per_currency = {}
-
-        # Process payment information
-        for payment in payments_information:
-            if payment[0] not in info_per_currency:
-                info_per_currency[payment[0]] = {
-                    'cantidad': 0,
-                    'nombre': payment[0],
-                    'amount': 0,
-                    'amount_pivoted': 0
-                }
-
-            info_per_currency[payment[0]]['cantidad'] = info_per_currency[payment[0]]['cantidad'] + payment[4] 
-            info_per_currency[payment[0]]['amount'] = info_per_currency[payment[0]]['amount'] + payment[5] 
-            info_per_currency[payment[0]]['amount_pivoted'] = info_per_currency[payment[0]]['amount_pivoted'] + payment[6] 
-    
-            # Add payment details to the table
-            self.cell((self.w-20)/6, 4, f'{payment[0]}', 0, 0, 'C', fill=True)
-            self.cell((self.w-20)/6, 4, f'{datetime.strftime(payment[3], "%Y/%m/%d %H:%M:%S")}', 0, 0, 'C', fill=True)
-            self.cell((self.w-20)/6, 4, f'{int(payment[4])}', 0, 0, 'C', fill=True)
-            self.cell((self.w-20)/6, 4, f'{locale.format_string("%.2f" , payment[6], True)}', 0, 0, 'C', fill=True)
-            if payment[1] == 1:
-                self.cell((self.w-20)/6, 4, f'{locale.format_string("%.4f", payment[2], True)}', 0, 0, 'C', fill=True)
-            elif payment[1] == 2:
-                self.cell((self.w-20)/6, 4, f'{locale.format_string("%.8f", payment[2], True)}', 0, 0, 'C', fill=True)
-            self.cell((self.w-20)/6, 4, f'{locale.format_string("%.2f" , payment[5], True)}', 0, 1, 'C', fill=True)
-    
-        # Set summary row formatting
-        self.set_fill_color(255,194,0)
-        self.set_text_color(40,40,40)
-        self.set_font('Arial', 'B', 8)
-        self.cell((self.w-20)/6, 5, 'Divisa', 0, 0, 'C', fill=True)
-        self.cell((self.w-20)/6, 5, '', 0, 0, 'C', fill=True)
-        self.cell((self.w-20)/6, 5, 'Cantidad', 0, 0, 'C', fill=True)
-        self.cell((self.w-20)/6, 5, 'Bolívares', 0, 0, 'C', fill=True)
-        self.cell((self.w-20)/6, 5, '', 0, 0, 'C', fill=True)
-        self.cell((self.w-20)/6, 5, 'Total', 0, 1, 'C', fill=True)
-        
-        # Set summary row body formatting
-        self.set_text_color(0,0,0)
-        self.set_fill_color(255,255,255)
-        self.set_font('Arial', '', 8)
-
-        # Add summary details to the table
-        for key, val in info_per_currency.items():
-            self.cell((self.w-20)/6, 4, f'{key}', 0, 0, 'C', fill=True)
-            self.cell((self.w-20)/6, 4, f'', 0, 0, 'C', fill=True)
-            self.cell((self.w-20)/6, 4, f'{val["cantidad"]}', 0, 0, 'C', fill=True)
-            self.cell((self.w-20)/6, 4, f'Bs. {locale.format_string("%.2f",val["amount_pivoted"], True)}', 0, 0, 'C', fill=True)
-            self.cell((self.w-20)/6, 4, '', 0, 0, 'C', fill=True)
-            self.cell((self.w-20)/6, 4, f'{locale.format_string("%.2f" , val["amount"], True)}', 0, 1, 'C', fill=True)
-            
-    def rates_by_date_by_channel(self):
-        """
-        Generates and formats a detailed report of ticket rates by date and channel.
-
-        This method retrieves ticket data, processes it to calculate daily totals per channel,
-        and formats the data into a structured table. The table includes various financial metrics
-        such as total payments, total amounts in different currencies, and cash amounts.
-
-        The table is then added to the report with appropriate formatting.
-
-        Attributes:
-        - self.start_date (str): The start date of the report.
-        - self.end_date (str): The end date of the report.
-        - self.pago_directo_info (dict): Information related to direct payments.
-
-        Returns:
-        - None
-        """
-        # Retrieve ticket data per date, currency, and channel
-        all_info = Tickets.get_tickets_total_amount_per_date_per_currency_per_channel(start_date=self.start_date, end_date=self.end_date)
-        info_per_channel = {}
-
-        line_height = self.font_size * 2.5
-        col_width = (self.w-20)/ 8
-
-        # Organize data by channel 
-        for i in all_info:
-            if i[1] not in info_per_channel:
-                info_per_channel[i[1]] = {"info":[], "name": i[2]}
-                info_per_channel[i[1]]["info"].append(i)
-            else:
-                info_per_channel[i[1]]["info"].append(i)
-
-        # Sort channels by name
-        info_per_channel = dict(sorted(info_per_channel.items(), key=lambda item: item[1]['name']))
-        for elem in info_per_channel:
-            self.subtitle_centered(f'Resumen de Accesos e Ingresos por Fecha - Canal {info_per_channel[elem]["name"]}')
-
-            general_info = info_per_channel[elem]["info"]
-
-            pago_directo_channel_daily = {}
-            if int(info_per_channel[elem]["name"]) in self.pago_directo_info[4]:
-                pago_directo_channel_daily = self.pago_directo_info[4][int(info_per_channel[elem]["name"])]
-
-            total_pagos = 0
-            total_amount = 0
-            total_amount_usd = 0
-            total_cash_ves = 0
-            total_cash_usd = 0
-            total_cash_cop = 0
- 
-            finals = [('Fecha', 'Pagos', 'Total general', 'TC', 'Total USD', 'Efvo. Bs', 'Efvo. USD', 'Efvo. COP')]
-
-            # Process each entry in the general info
-            for i in general_info:
-                if i[0] in pago_directo_channel_daily:
-                    pagos_daily = pago_directo_channel_daily[i[0]]['tickets'] + i[3]
-                    amount_daily = pago_directo_channel_daily[i[0]]['amount'] + float(i[4])
-                    amount_daily_usd = pago_directo_channel_daily[i[0]]['amount']/float(i[5]) + float(i[6])
-                else:
-                    pagos_daily = i[3]
-                    amount_daily = float(i[4])
-                    amount_daily_usd = float(i[6])
-
-                finals.append(
-                    (
-                        str(datetime.fromisoformat(i[0]).strftime('%d-%m-%Y')), 
-                        str(locale.format_string('%.0f',pagos_daily, True)), 
-                        str(locale.format_string('%.2f',amount_daily, True)), 
-                        str(locale.format_string('%.2f',float(i[5]), True)), 
-                        str(locale.format_string('%.2f',amount_daily_usd, True)), 
-                        str(locale.format_string('%.2f',float(i[9]), True)), 
-                        str(locale.format_string('%.0f',float(i[7]), True)),
-                        str(locale.format_string('%.0f',float(i[8]), True))
-                        )
-                )
-                total_pagos += pagos_daily
-                total_amount += amount_daily
-                total_amount_usd += amount_daily_usd
-                total_cash_usd += float(i[7])
-                total_cash_cop += float(i[8])
-                total_cash_ves += float(i[9])
-
-            # Append totals to the final data structure
-            finals.append(
-                (
-                    '', 
-                    str(locale.format_string('%d', total_pagos, True)), 
-                    str(locale.format_string('%.2f', total_amount, True)), 
-                    '', 
-                    str(locale.format_string('%.2f', total_amount_usd, True)), 
-                    str(locale.format_string('%.2f', total_cash_ves, True)), 
-                    str(locale.format_string('%d', total_cash_usd, True)),
-                    str(locale.format_string('%d', total_cash_cop, True))
-                )
-            )
-
-            # Format and add the final data to the report
-            for j,row in enumerate(finals):
-                for datum in row:
-
-                    if j == 0:
-                        self.set_font('Arial', 'B', 8)
-                        self.set_fill_color(255,194,0)
-                        self.set_text_color(40,40,40)
-                    elif j == len(finals)-1:
-                        self.set_font('Arial', 'B', 8)
-                        self.set_fill_color(235,235,235)
-                        self.set_text_color(40,40,40)
-                    elif j%2 == 0:
-                        self.set_font('Arial', '', 8)
-                        self.set_fill_color(255,255,255)
-                        self.set_text_color(40,40,40)
-                    elif j%2 == 1:
-                        self.set_font('Arial', '', 8)
-                        self.set_fill_color(249,249,249)
-                        self.set_text_color(40,40,40)
-
-                    self.cell(col_width, line_height, datum, border=0,align='C', fill=True)
-                self.ln(line_height)
-
-    def rates_by_vehicle_by_channel(self):
-        """
-        Generates and formats a detailed report of ticket rates by vehicle type and channel.
-
-        This method retrieves ticket data, processes it to calculate totals per vehicle type and channel,
-        and formats the data into a structured table. The table includes various financial metrics
-        such as total payments, total amounts in different currencies, and cash amounts.
-
-        The table is then added to the report with appropriate formatting.
-
-        Attributes:
-        - self.start_date (str): The start date of the report.
-        - self.end_date (str): The end date of the report.
-        - self.pago_directo_info (dict): Information related to direct payments.
-
-        Returns:
-        - None
-        """
-        # Retrieve ticket data per vehicle, currency, and channel
-        all_info = Tickets.get_tickets_total_amount_per_vehicle_per_currency_per_channel(start_date=self.start_date, end_date=self.end_date)
-        info_per_channel = {}
-
-        line_height = self.font_size * 2.5
-        col_width_first_column = 35.625
-        col_width_others = (self.w - 20 - col_width_first_column) / 7    # Adjust column width for 8 columns instead of 10
-
-        # Organize data by channel
-        for i in all_info:
-            if i[8] not in info_per_channel:
-                info_per_channel[i[8]] = {"info": [], "name": i[9]}
-                info_per_channel[i[8]]["info"].append(i)
-            else:
-                info_per_channel[i[8]]["info"].append(i)
-
-        # Sort channels by name
-        info_per_channel = dict(sorted(info_per_channel.items(), key=lambda item: item[1]['name']))
-        for elem in info_per_channel:
-            self.subtitle_centered(f'Resumen de Accesos e Ingresos por Vehículo - Canal {info_per_channel[elem]["name"]}')
-            general_info = info_per_channel[elem]["info"]
-
-            if int(info_per_channel[elem]["name"]) in self.pago_directo_info[2]:
-                pago_directo_channel_by_vehicle = self.pago_directo_info[2][int(info_per_channel[elem]["name"])]
-            else:
-                pago_directo_channel_by_vehicle = {'tickets': 0, 'amount': 0}
-
-            total_pagos = 0
-            total_amount = 0
-            total_amount_usd = 0
-            total_ves_cash = 0
-            total_usd_cash = 0
-            total_cop_cash = 0
-
-            # Process each entry in the general info
-            for i in general_info:
-                total_pagos += i[5]
-                total_amount += float(i[3])
-                total_amount_usd += float(i[4])
-                total_ves_cash += float(i[12])
-                total_usd_cash += float(i[10])
-                total_cop_cash += float(i[11])
-
-            total_pagos += pago_directo_channel_by_vehicle['tickets']
-            total_amount += pago_directo_channel_by_vehicle['amount']
-
-            finals = []
-            for i in general_info:
-                if 'Vehículo liviano' == i[0]:
-                    vehicle_pagos = i[5] + pago_directo_channel_by_vehicle['tickets']
-                    vehicle_amount = float(i[3]) + pago_directo_channel_by_vehicle['amount']
-                    vehicle_amount_usd = float(i[4]) + pago_directo_channel_by_vehicle['amount'] / i[2]
-                else:
-                    vehicle_pagos = i[5]
-                    vehicle_amount = float(i[3])
-                    vehicle_amount_usd = float(i[4])
-                if total_pagos > 0:
-                    percentage_pagos = (vehicle_pagos / total_pagos) * 100
-                else:
-                    percentage_pagos = 0
-
-                if total_amount > 0:
-                    percentage_amount = (vehicle_amount / total_amount) * 100
-                else:
-                    percentage_amount = 0
-                finals.append(
-                    (
-                        str(i[0]),
-                        str(locale.format_string('%.0f', vehicle_pagos, True)),
-                        f"{str(locale.format_string('%.2f', percentage_pagos, True))}%",
-                        str(locale.format_string('%.2f', vehicle_amount, True)),
-                        f"{str(locale.format_string('%.2f', percentage_amount, True))}%",
-                        f"{str(locale.format_string('%.2f', i[12], True))}",
-                        f"{str(locale.format_string('%.0f', i[10], True))}",
-                        f"{str(locale.format_string('%.0f', i[11], True))}"
-                    )
-                )
-            orden_vehiculos = {
-                'Vehículo liviano': 1,
-                'Microbús': 2,
-                'Autobús': 3,
-                'Camión liviano': 4,
-                'Camión 2 ejes': 5,
-                'Camión 3 ejes': 6,
-                'Camión 4 ejes': 7,
-                'Camión 5 ejes': 8,
-                'Camión 6+ ejes': 9,
-                'Exonerado General': 10,
-                'Exonerado Ambulancia': 11,
-                'Exonerado Seguridad': 12,
-                'Exonerado Gobernación': 13,
-                'Exonerado PDVSA': 14
-            }
-
-            finals = sorted(finals, key=lambda x: orden_vehiculos[x[0]] if x[0] in orden_vehiculos else len(finals))
-            finals = [('Tipo de Vehículo', 'Pagos', '% pagos', 'Total Bs', '% Monto', 'Efvo. Bs', 'Efvo. USD', 'Efvo. COP')] + finals
-            finals.append(
-                (
-                    '',
-                    str(locale.format_string('%.0f', total_pagos, True)),
-                    '',
-                    str(locale.format_string('%.2f', total_amount, True)),
-                    '',
-                    str(locale.format_string('%.2f', total_ves_cash, True)),
-                    str(locale.format_string('%.0f', total_usd_cash, True)),
-                    str(locale.format_string('%.0f', total_cop_cash, True))
-                )
-            )
-
-            # Format and add the final data to the report
-            for j, row in enumerate(finals):
-                counter = 0
-                for datum in row:
-                    if j == 0:
-                        self.set_font('Arial', 'B', 8)
-                        self.set_fill_color(255, 194, 0)
-                        self.set_text_color(40, 40, 40)
-                    elif j == len(finals) - 1:
-                        self.set_font('Arial', 'B', 8)
-                        self.set_fill_color(235, 235, 235)
-                        self.set_text_color(40, 40, 40)
-                    elif j % 2 == 0:
-                        self.set_font('Arial', '', 8)
-                        self.set_fill_color(255, 255, 255)
-                        self.set_text_color(40, 40, 40)
-                    elif j % 2 == 1:
-                        self.set_font('Arial', '', 8)
-                        self.set_fill_color(249, 249, 249)
-                        self.set_text_color(40, 40, 40)
-
-                    if counter == 0:
-                        self.cell(col_width_first_column, line_height, datum, border=0, align='C', fill=True)
-                    else:
-                        self.cell(col_width_others, line_height, datum, border=0, align='C', fill=True)
-                    counter += 1
-                self.ln(line_height)
-
-    def rates_by_payment_types_by_channel(self):
-        """
-        Generates and formats a detailed report of payment types by channel.
-
-        This method retrieves payment type data and ticket data, processes it to calculate totals per payment type and channel,
-        and formats the data into a structured table. The table includes various financial metrics such as total transactions,
-        total amounts, and percentages of transactions and amounts collected.
-
-        The table is then added to the report with appropriate formatting.
-
-        Attributes:
-        - self.start_date (str): The start date of the report.
-        - self.end_date (str): The end date of the report.
-        - self.pago_directo_info (dict): Information related to direct payments.
-
-        Returns:
-        - None
-        """
-        # Retrieve payment type data per channel
-        general_info = Payments.get_payment_type_per_channel(start_date=self.start_date, end_date=self.end_date)
-        # Retrieve ticket data per vehicle, currency, and channel
-
-        all_info = Tickets.get_tickets_total_amount_per_vehicle_per_currency_per_channel(start_date=self.start_date, end_date=self.end_date)
-        info_per_channel = {}
-        line_height = self.font_size * 2.5
-        col_width = (self.w - 20) / 5
-        
-        # Organize data by channel
-        for i in all_info:
-            channel_id = int(i[9])
-            if channel_id not in info_per_channel:
-                info_per_channel[channel_id] = {"info": [], "name": i[9], "id": i[8]}
-            info_per_channel[channel_id]["info"].append(i)
-
-        # Sort channels by name
-        info_per_channel = dict(sorted(info_per_channel.items(), key=lambda item: item[1]['name']))
-
-        for key, val in general_info.items():
-            total_transactions = 0
-            total_amount = 0
-            general_info2 = info_per_channel[int(key)]["info"]
-
-            # Calculate total_amount2 once
-            total_amount2 = sum(float(info[3]) for info in general_info2)
-            
-            # Add direct payment amount if present
-            if int(info_per_channel[int(key)]["name"]) in self.pago_directo_info[2]:
-                pago_directo_channel_by_vehicle = self.pago_directo_info[2][int(info_per_channel[int(key)]["name"])]
-                total_amount2 += pago_directo_channel_by_vehicle['amount']
-
-            # Calculate total transactions and amount collected by payment method
-            for key_2, val_2 in val.items():
-                for key_3, val_3 in val_2.items():
-                    if key_3 != 'currency_name':
-                        total_transactions += val_3['num_transactions']
-                        total_amount += float(val_3['amount_pivoted'])
-
-            # Add pago directo Bluetooth payment info if present
-            if int(key) in self.pago_directo_info[2]:
-                total_transactions += self.pago_directo_info[2][int(key)]['tickets']
-                total_amount += self.pago_directo_info[2][int(key)]['amount']
-            
-                general_info[key][3]['pg'] = {
-                    "name": "Pago Directo Bluetooth",
-                    "amount": self.pago_directo_info[2][int(key)]['amount'],
-                    "num_transactions": self.pago_directo_info[2][int(key)]['tickets'],
-                    "amount_pivoted": self.pago_directo_info[2][int(key)]['amount'],
-                    "percentage_transactions": (self.pago_directo_info[2][int(key)]['tickets'] / total_transactions) * 100 if total_transactions > 0 else 0,
-                    "percentage_amount_collected": (self.pago_directo_info[2][int(key)]['amount'] / total_amount2) * 100 if total_amount2 > 0 else 0
-                } 
-            else:
-                general_info[key][3]['pg'] = {
-                    "name": "Pago Directo Bluetooth",
-                    "amount": 0,
-                    "num_transactions": 0,
-                    "amount_pivoted": 0,
-                    "percentage_transactions": 0,
-                    "percentage_amount_collected": 0
-                } 
-
-            # Update total_amount and total_transactions in general_info
-            general_info[key]['total_amount'] = total_amount
-            general_info[key]['total_transactions'] = total_transactions
-
-            # Generate report for each channel
-            self.subtitle_centered(f'Resumen de Métodos de Pago General- Canal {key}')
-            finals = []
-
-            for key_2, val_2 in val.items():
-                if key_2 == 1 or key_2 == 2:
-                    if total_transactions > 0:
-                        val_2[1]['percentage_transactions'] = (float(val_2[1]['num_transactions']) / total_transactions) * 100
-                    else:
-                        val_2[1]['percentage_transactions'] = 0
-
-                    if total_amount2 > 0:
-                        val_2[1]['percentage_amount_collected'] = (float(val_2[1]['amount_pivoted']) / total_amount2) * 100
-                    else:
-                        val_2[1]['percentage_amount_collected'] = 0
-
-                    finals.append((
-                        str(val_2[1]['name']),
-                        str(locale.format_string('%.0f', val_2[1]['num_transactions'], True)),
-                        f"{str(locale.format_string('%.2f', val_2[1]['percentage_transactions'], True))}%",
-                        str(locale.format_string('%.2f', float(val_2[1]['amount_pivoted']), True)),
-                        f"{str(locale.format_string('%.2f', float(val_2[1]['percentage_amount_collected']), True))}%"
-                    ))
-
-                elif key_2 == 3:
-                    for key_3, val_3 in val_2.items():
-                        if key_3 != 'currency_name':
-                            if total_transactions > 0:
-                                val_3['percentage_transactions'] = (float(val_3['num_transactions']) / total_transactions) * 100
-                            else:
-                                val_3['percentage_transactions'] = 0
-
-                            if total_amount2 > 0:
-                                val_3['percentage_amount_collected'] = (float(val_3['amount_pivoted']) / total_amount2) * 100
-                            else:
-                                val_3['percentage_amount_collected'] = 0
-
-                            finals.append((
-                                str(val_3['name']),
-                                str(locale.format_string('%.0f', val_3['num_transactions'], True)),
-                                f"{str(locale.format_string('%.2f', float(val_3['percentage_transactions']), True))}%",
-                                str(locale.format_string('%.2f', float(val_3['amount_pivoted']), True)),
-                                f"{str(locale.format_string('%.2f', float(val_3['percentage_amount_collected']), True))}%"
-                            ))
-
-            # Add exchange rate differential row
-            diferencial_cambiario = total_amount2 - total_amount
-            porcentaje_diferencial_cambiario = (diferencial_cambiario / total_amount2) * 100 if total_amount2 > 0 else 0
-            finals.append((
-                'Diferencial Cambiario',
-                '0',
-                '0,00%',
-                str(locale.format_string('%.2f', diferencial_cambiario, True)),
-                f"{str(locale.format_string('%.2f', porcentaje_diferencial_cambiario, True))}%"
-            ))
-
-            # Sort and prepare the final report
-            orden_metodos_de_pago = {
-                'Efectivo Bolívares': 1,
-                'Efectivo Dólares': 2,
-                'Efectivo Pesos': 3,
-                'Pago Móvil': 4,
-                'Punto de venta Bancamiga': 5,
-                'Punto de venta BNC': 6,
-                'Punto de venta Bicentenario': 7,
-                'Ventag': 8,
-                'VenVías': 9,
-                'Cobretag': 10,
-                'Pago Directo': 11,
-                'Pago Directo Bluetooth': 12,
-                'Exonerado': 13
-            }
-
-            finals_sorted = sorted(finals, key=lambda x: orden_metodos_de_pago.get(x[0], 999))
-            finals = [('Tipo de cobro', 'Pagos', 'Porcentaje pagos', 'Monto Bs', 'Porcentaje Monto')] + finals_sorted
-            finals.append(('', str(locale.format_string('%d', total_transactions, True)), '', str(locale.format_string('%.2f', total_amount2, True)), ''))
-
-            for j, row in enumerate(finals):
-                for datum in row:
-                    if j == 0:
-                        self.set_font('Arial', 'B', 8)
-                        self.set_fill_color(255, 194, 0)
-                        self.set_text_color(40, 40, 40)
-                    elif j == len(finals) - 1:
-                        self.set_font('Arial', 'B', 8)
-                        self.set_fill_color(235, 235, 235)
-                        self.set_text_color(40, 40, 40)
-                    elif j % 2 == 0:
-                        self.set_font('Arial', '', 8)
-                        self.set_fill_color(255, 255, 255)
-                        self.set_text_color(40, 40, 40)
-                    elif j % 2 == 1:
-                        self.set_font('Arial', '', 8)
-                        self.set_fill_color(249, 249, 249)
-                        self.set_text_color(40, 40, 40)
-
-                    self.cell(col_width, line_height, datum, border=0, align='C', fill=True)
-                self.ln(line_height)
-
     def subtitle_centered(self, subtitle):
         """
         Centers and formats a subtitle in the report.
@@ -3434,6 +1486,91 @@ class Report_Generator(FPDF):
         
         # Draw the cell with the subtitle text, centered, with no border
         self.cell(w, 20, subtitle, 0, 1, 'C', 0)
+
+    def general_info_institutional(self,report_data):
+        """
+        Genera y formatea la sección de información general del reporte.
+        """
+        # Obtenemos los datos por parámetro
+        json_data = report_data
+
+        # Verificamos si la respuesta es válida
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+
+        
+        # Procesar los datos obtenidos
+        try:
+            # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
+
+            if self.toll:
+              
+              # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+              first_data_item = json_data.get("data", [])[0]
+              results = first_data_item.get("data", {}).get("results", {})
+              general_data = results.get("general_data", {})
+
+              total_payments_bs = general_data.get("total_payments_bs", 0)
+              
+              
+              #Gobernacion del estado
+              total_state_bs = total_payments_bs
+              
+              finals = [
+                ('Monto Total en Bolívares'),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
+                )
+              ]
+            
+            else:
+              
+              # Extraer totales por estado en Bs y USD
+              total_state = json_data.get("total_por_estado", {})
+              
+
+              # Extraer datos generales
+              general_data = json_data["data"][0]["data"]["results"]["general_data"]
+              total_payments_bs = general_data.get("total_payments_bs", 0)
+              total_payments_usd = general_data.get("total_payments_usd", 0)
+              vehicles = general_data.get("vehicles", 0)
+
+              # Renderizar tabla de resultados dinámicamente
+              finals = [
+                  ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
+                  (
+                      f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                  )
+              ]
+
+        except (KeyError, IndexError) as e:
+            print(f"Error al procesar los datos del backend: {str(e)}")
+            return
+
+        # Formatear los datos y añadirlos al PDF
+        for j, row in enumerate(finals):
+            for datum in row:
+                if j == 0 or j == 2:
+                    self.set_font('Arial', 'B', 10)
+                    self.set_fill_color(255, 194, 0)
+                    self.set_text_color(40, 40, 40)
+                elif j == 1 or j == 3:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                elif j == 4 or 6:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+
+                # Set the cell size and add the data to the report
+                # The cell size is calculated based on the number of columns in the row
+                self.cell((self.w - 20) / len(row), 11, datum, 0, 0, 'C', fill=True)
+            self.ln(11)
+
+        # Resetear el formato de texto al predeterminado
+        self.set_font('Arial', '', 12)
 
 @ns.route('/General-PDF-Report-Consolidate')
 class GeneralPDFReportConsolidate(Resource):
@@ -3463,10 +1600,10 @@ class GeneralPDFReportConsolidate(Resource):
                 return {"message": "Los campos 'start_date', 'end_date' y 'username' son obligatorios."}, 400
 
             # Determinar tipo de reporte
-            if general_report_type == 'Summaries':
+            if general_report_type == 'Complete':
 
                 pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
-                                       general_report_type=general_report_type, report_name=report_name, state=state)
+                                       general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
 
                 # Obtener los datos del backend
                 report_data = pdf.fetch_data_from_backend()
@@ -3479,30 +1616,60 @@ class GeneralPDFReportConsolidate(Resource):
 
                 # Asegúrate de llamar a add_page() para abrir la primera página
                 pdf.add_page()
+                
+                start_date = datetime.fromisoformat(start_date)
+                end_date= datetime.fromisoformat(end_date)
+                difference_days = end_date - start_date
 
-                # Llamar a las funciones que generan las secciones del reporte
-                pdf.general_info(report_data)
-                pdf.general_rates_by_vehicle_2(report_data)
-                pdf.general_rates_by_date(report_data)
-                pdf.general_rates_by_payments_types_2(report_data)
+                if difference_days > timedelta(days=3):
+                    # Llamar a las funciones que generan las secciones del reporte
+                    pdf.general_info(report_data)
+                    pdf.linechart_payments_and_amount_by_date(report_data)
+                    pdf.add_page()
+                    pdf.general_rates_by_vehicle_2(report_data)
+                    pdf.add_page()
+                    pdf.general_rates_by_payments_types_2(report_data)
+                    pdf.general_rates_by_date(report_data)
+                    pdf.general_rates_by_vehicle(report_data)
+                    pdf.general_rates_by_payment_types(report_data)
 
-                # Convertir el PDF a BytesIO
-                pdf_data_str = pdf.output(dest='S').encode('latin1')
-                print(f"Tipo de datos de pdf_data_str: {type(pdf_data_str)}")
-                pdf_data = io.BytesIO(pdf_data_str)
+                    # Convertir el PDF a BytesIO
+                    pdf_data_str = pdf.output(dest='S').encode('latin1')
+                    pdf_data = io.BytesIO(pdf_data_str)
 
-                # Enviar el PDF como respuesta
-                return send_file(
-                    pdf_data,
-                    mimetype='application/pdf',
-                    as_attachment=True,
-                    download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
-                )
+                    # Enviar el PDF como respuesta
+                    return send_file(
+                        pdf_data,
+                        mimetype='application/pdf',
+                        as_attachment=True,
+                        download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+                    )
+                else:
+                    # Llamar a las funciones que generan las secciones del reporte
+                    pdf.general_info(report_data)
+                    # pdf.general_rates_by_vehicle_2(report_data)
+                    # pdf.general_rates_by_payments_types_2(report_data)
+                    # pdf.general_rates_by_date(report_data)
+                    # pdf.general_rates_by_vehicle(report_data)
+                    # pdf.general_rates_by_payment_types(report_data)
+
+                    # Convertir el PDF a BytesIO
+                    pdf_data_str = pdf.output(dest='S').encode('latin1')
+                    pdf_data = io.BytesIO(pdf_data_str)
+
+                    # Enviar el PDF como respuesta
+                    return send_file(
+                        pdf_data,
+                        mimetype='application/pdf',
+                        as_attachment=True,
+                        download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+                    )
+
                 
             else:
 
                 pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
-                                       general_report_type=general_report_type, report_name=report_name, state=state)
+                                       general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
 
                 # Obtener los datos del backend
                 report_data = pdf.fetch_data_from_backend()
@@ -3524,7 +1691,6 @@ class GeneralPDFReportConsolidate(Resource):
 
                 # Convertir el PDF a BytesIO
                 pdf_data_str = pdf.output(dest='S').encode('latin1')
-                print(f"Tipo de datos de pdf_data_str: {type(pdf_data_str)}")
                 pdf_data = io.BytesIO(pdf_data_str)
 
                 # Enviar el PDF como respuesta
@@ -3540,6 +1706,65 @@ class GeneralPDFReportConsolidate(Resource):
         except Exception as e:
             return {"message": f"Error interno al generar el reporte: {str(e)}"}, 500
    
+
+@ns.route('/General-PDF-Report-Institutional')
+class General_PDF_Report_Institutional(Resource):
+    @ns.expect(generate_report_general_report_institutional)
+    def post(self):
+        """ Generar el reporte para el usuario Institucional """
+        payload = api.payload
+
+        # Verificar si payload es None
+        if not payload:
+            return {"message": "El cuerpo de la solicitud está vacío o no es válido."}, 400
+
+        # Validar y obtener los parámetros
+        start_date = payload.get('start_date')
+        end_date = payload.get('end_date')
+        general_report_type = payload.get('general_report_type', 'Complete')
+        state = payload.get('state', None)
+        toll = payload.get('toll', None)
+        report_name = payload.get('report_name', 'general_report').replace(' ', '_')
+        supervisor_name = payload.get('username')
+
+        if not start_date or not end_date:
+            return {"message": "Los campos 'start_date', 'end_date' y 'username' son obligatorios."}, 400
+
+        #Genero el reporte 
+        pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
+                                       general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
+
+        
+        # Obtener los datos del backend
+        report_data = pdf.fetch_data_from_backend()
+
+        # Verificar si report_data es None o no es un diccionario
+        if not report_data:
+            return {"message": "Error al obtener los datos del backend."}, 500
+        if not isinstance(report_data, dict):
+            return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+
+        pdf.add_page()
+        pdf.general_info_institutional(report_data)
+
+        # Convertir el PDF a BytesIO
+        pdf_data_str = pdf.output(dest='S').encode('latin1')
+        pdf_data = io.BytesIO(pdf_data_str)
+
+        # Enviar el PDF como respuesta
+        return send_file(
+            pdf_data,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+        )
+
+        
+
+        
+            
+
+
 # Inicializar la aplicación Flask
 if __name__ == "__main__":
     app.run(debug=True, port=8000)
