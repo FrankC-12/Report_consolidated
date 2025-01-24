@@ -1957,10 +1957,10 @@ class General_PDF_Report_Ministry(Resource):
         start_date = datetime.fromisoformat(start_date)
         end_date= datetime.fromisoformat(end_date)
         difference_days = end_date - start_date
+        
+        pdf.add_page()
 
         if difference_days > timedelta(days=3):
-          
-            pdf.add_page()
           
             # Llamar a las funciones que generan las secciones del reporte
             pdf.general_info(report_data)
