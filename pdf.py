@@ -121,7 +121,7 @@ class Report_Generator(FPDF):
         self.report_name = report_name
         self.general_report_type = general_report_type 
     
-    def fetch_data_state(self,toll):
+    def fetch_data_state(self, state):
         """
         Realiza una solicitud al backend y retorna el JSON de respuesta.
 
@@ -133,7 +133,7 @@ class Report_Generator(FPDF):
         data = {
             "start_date": self.start_date,
             "end_date": self.end_date,
-            "state": toll
+            "state": state
         }
         
         
@@ -169,11 +169,11 @@ class Report_Generator(FPDF):
         """
         url = "http://127.0.0.1:3001/v1/consolidatedReport"
 
-        if self.toll:
+        if self.state:
             data = {
                 "start_date": self.start_date,
                 "end_date": self.end_date,
-                "state": self.toll
+                "state": self.state
             }
         else:
             data = {
@@ -191,7 +191,7 @@ class Report_Generator(FPDF):
         headers = {
             "X-API-Key": apikey
         }
-
+        
         try:
             response = requests.post(url, json=data, headers=headers)
 
@@ -298,11 +298,11 @@ class Report_Generator(FPDF):
 
         self.cell(0,5, f'Del {datetime.strftime(datetime.fromisoformat(self.start_date), "%d/%m/%Y %H:%M:%S")} al {datetime.strftime(datetime.fromisoformat(self.end_date), "%d/%m/%Y %H:%M:%S")}',align='R', ln=1)
 
-        if self.toll is not None:
+        if self.state_name is not None:
             self.set_font('Arial', 'B', 8.5)
-            self.cell(203 - self.get_string_width(f'Estado: {self.toll}'),5, 'Estado:  ',align='R')
+            self.cell(203 - self.get_string_width(f'Estado: {self.state_name}'),5, 'Estado:  ',align='R')
             self.set_font('Arial', '', 8.5)
-            self.cell(0, 5, f' {self.toll}', 0, 1, align='R')
+            self.cell(0, 5, f' {self.state_name}', 0, 1, align='R')
         else:
             self.set_font('Arial', 'B', 8.5)
             self.cell(203 - self.get_string_width(f'Estado: Todos'),5, 'Estado:  ',align='R')
@@ -562,13 +562,12 @@ class Report_Generator(FPDF):
         if not json_data:
             print("No se pudo obtener los datos del backend. No se generará el PDF.")
             return
-
         
         # Procesar los datos obtenidos
         try:
             # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
 
-            if self.toll:
+            if self.state_name:
               
               # Extraemos los datos relevantes, con valores por defecto en caso de que falten
               first_data_item = json_data.get("data", [])[0]
@@ -603,7 +602,7 @@ class Report_Generator(FPDF):
                     f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
                     f"$ {locale.format_string('%.2f', total_payments_usd, grouping=True)}",
                     f"{locale.format_string('%.0f', vehicles, grouping=True)}"
-                ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.toll} ({state_percentage}%)', f'Venpax {self.toll} ({venpax_percentage}%)'),
+                ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.state_name} ({state_percentage}%)', f'Venpax {self.state_name} ({venpax_percentage}%)'),
                 (
                     f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
                     f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
@@ -1562,7 +1561,7 @@ class Report_Generator(FPDF):
         try:
             # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
 
-            if self.toll:
+            if self.state_name:
               
               # Extraemos los datos relevantes, con valores por defecto en caso de que falten
               first_data_item = json_data.get("data", [])[0]
