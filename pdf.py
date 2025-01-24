@@ -297,17 +297,21 @@ class Report_Generator(FPDF):
 
         self.cell(0,5, f'Del {datetime.strftime(datetime.fromisoformat(self.start_date), "%d/%m/%Y %H:%M:%S")} al {datetime.strftime(datetime.fromisoformat(self.end_date), "%d/%m/%Y %H:%M:%S")}',align='R', ln=1)
 
-        if self.toll is not None:
+        if self.state is not None:
             self.set_font('Arial', 'B', 8.5)
-            self.cell(203 - self.get_string_width(f'Estado: {self.toll}'),5, 'Estado:  ',align='R')
+            self.cell(203 - self.get_string_width(f'Estado: {self.state}'),5, 'Estado:  ',align='R')
             self.set_font('Arial', '', 8.5)
-            self.cell(0, 5, f' {self.toll}', 0, 1, align='R')
+            self.cell(0, 5, f' {self.state}', 0, 1, align='R')
         else:
             self.set_font('Arial', 'B', 8.5)
             self.cell(203 - self.get_string_width(f'Estado: Todos'),5, 'Estado:  ',align='R')
             self.set_font('Arial', '', 8.5)
             self.cell(0, 5, f' Todos', 0, 1, align='R')
-        
+        if self.toll:
+            self.set_font('Arial', 'B', 8.5)
+            self.cell(203 - self.get_string_width(f'Peaje:  {self.toll}'),5, 'Peaje:  ',align='R')
+            self.set_font('Arial', '', 8.5)
+            self.cell(0, 5, f' {self.toll}', 0, 1, align='R')
 
         self.line(10, 48, 200, 48)
         self.ln(5)
@@ -2059,7 +2063,7 @@ class General_PDF_Report_Institutional_By_State(Resource):
 
         #Genero el reporte 
         pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
-                                       general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
+        general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
 
         if state is None:
             # Obtener los datos del backend
