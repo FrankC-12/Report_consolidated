@@ -1795,22 +1795,13 @@ class Report_Generator(FPDF):
             (
                 f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
                 f"{locale.format_string('%.0f', vehicles, grouping=True)}"
-            ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.toll} ({state_percentage}%)', f'Venpax {self.toll} ({venpax_percentage}%)'),
+            ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Peaje {self.toll} ({state_percentage}%)', f'Venpax {self.toll} ({venpax_percentage}%)'),
             (
                 f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
                 f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
                 f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"
             ),
             ]
-
-
-
-
-
-            
-            
-            
-
 
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
