@@ -1954,24 +1954,50 @@ class General_PDF_Report_Ministry(Resource):
         if not isinstance(report_data, dict):
             return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
           
-        pdf.add_page()
-        
-        # Llamar a las funciones que generan las secciones del reporte
-        pdf.general_info(report_data)
-        pdf.add_page()
-        pdf.general_rates_by_vehicle_2(report_data)
-        
-        # Convertir el PDF a BytesIO
-        pdf_data_str = pdf.output(dest='S').encode('latin1')
-        pdf_data = io.BytesIO(pdf_data_str)
+        start_date = datetime.fromisoformat(start_date)
+        end_date= datetime.fromisoformat(end_date)
+        difference_days = end_date - start_date
 
-        # Enviar el PDF como respuesta
-        return send_file(
-            pdf_data,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
-        ) 
+        if difference_days > timedelta(days=3):
+          
+            pdf.add_page()
+          
+            # Llamar a las funciones que generan las secciones del reporte
+            pdf.general_info(report_data)
+            pdf.linechart_payments_and_amount_by_date(report_data)
+            pdf.add_page()
+            pdf.general_rates_by_vehicle_2(report_data)
+            
+            # Convertir el PDF a BytesIO
+            pdf_data_str = pdf.output(dest='S').encode('latin1')
+            pdf_data = io.BytesIO(pdf_data_str)
+
+            # Enviar el PDF como respuesta
+            return send_file(
+                pdf_data,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+            ) 
+        
+        else:
+          
+            # Llamar a las funciones que generan las secciones del reporte
+            pdf.general_info(report_data)
+            pdf.add_page()
+            pdf.general_rates_by_vehicle_2(report_data)
+            
+            # Convertir el PDF a BytesIO
+            pdf_data_str = pdf.output(dest='S').encode('latin1')
+            pdf_data = io.BytesIO(pdf_data_str)
+
+            # Enviar el PDF como respuesta
+            return send_file(
+                pdf_data,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+            ) 
 
 # Inicializar la aplicación Flask
 if __name__ == "__main__":
