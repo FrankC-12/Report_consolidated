@@ -173,7 +173,7 @@ class Report_Generator(FPDF):
             data = {
                 "start_date": self.start_date,
                 "end_date": self.end_date,
-                "state": self.toll
+                "state": self.state
             }
         else:
             data = {
@@ -307,6 +307,7 @@ class Report_Generator(FPDF):
             self.cell(203 - self.get_string_width(f'Estado: Todos'),5, 'Estado:  ',align='R')
             self.set_font('Arial', '', 8.5)
             self.cell(0, 5, f' Todos', 0, 1, align='R')
+        
 
         self.line(10, 48, 200, 48)
         self.ln(5)
@@ -1014,7 +1015,6 @@ class Report_Generator(FPDF):
                 else:  # Otras columnas (más estrechas)
                     self.cell((self.w - 20) * 0.14, line_height, datum, border=0, align='C', fill=True)
             self.ln(line_height)  # Mover a la siguiente línea
-
 
     def general_rates_by_vehicle_2(self, report_data):
         """
