@@ -53,6 +53,13 @@ generate_report_general_report_institutional = api.model('InstitutionalReportPay
     'toll': fields.String(required=True, description='El peaje a filtrar en el reporte')
 })
 
+generate_report_general_report_ministry = api.model('MinistryReportPayload', {
+    'start_date': fields.String(required=True, description='La fecha de inicio del reporte (formato ISO8601)'),
+    'end_date': fields.String(required=True, description='La fecha de fin del reporte (formato ISO8601)'),
+    'state': fields.String(required=False, description='El estado a filtrar en el reporte'),
+    'toll': fields.String(required=False, description='El peaje a filtrar en el reporte')
+})
+
 ns = api.namespace("reports", description="Report Generation Endpoints")
 
 
@@ -173,6 +180,8 @@ class Report_Generator(FPDF):
                 "start_date": self.start_date,
                 "end_date": self.end_date
             }
+            
+        print(data)
         
         apikey = "Nvam9tkrV2agWHjXdsdTYvYoMDg2dnUQxZC5wRJMkV5UkmF4fHNHvXfoiTsQejwk7wgj5PVo3DoS"
         
@@ -1982,8 +1991,7 @@ class GeneralPDFReportConsolidate(Resource):
                         as_attachment=True,
                         download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
                     )
-
-                
+ 
             else:
 
                 pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
@@ -2156,6 +2164,59 @@ class General_PDF_Report_Institutional(Resource):
             as_attachment=True,
             download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
         )
+
+@ns.route('/General-PDF-Report-ministry')
+class General_PDF_Report_Ministry(Resource):
+    @ns.expect(generate_report_general_report_ministry)
+    def post(self):
+        """ Generar el reporte por peaje para usuario de ministerio """
+        # Verificar si payload es None
+        payload = api.payload         
+                
+        if not payload:
+            return {"message": "El cuerpo de la solicitud está vacío o no es válido."}, 400
+          
+        # Validar y obtener los parámetros
+        start_date = payload.get('start_date')
+        end_date = payload.get('end_date')
+        state = payload.get('state', None)
+        toll = payload.get('toll', None)
+        report_name = payload.get('report_name', 'general_report').replace(' ', '_')
+        
+        if not (start_date or end_date or state or toll):
+          return {"message": "Todos los campos son obligatorios."}, 400
+        
+        # Generar el reporte 
+        pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=None,
+            general_report_type=None, report_name=report_name, state=state,toll=toll)
+        
+        # Obtener los datos del backend
+        report_data = pdf.fetch_data_from_backend()
+        
+        # Verificar si report_data es None o no es un diccionario
+        if not report_data:
+            return {"message": "Error al obtener los datos del backend."}, 500
+        if not isinstance(report_data, dict):
+            return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+          
+        pdf.add_page()
+        
+        # Llamar a las funciones que generan las secciones del reporte
+        pdf.general_info(report_data)
+        pdf.add_page()
+        pdf.general_rates_by_vehicle_2(report_data)
+        
+        # Convertir el PDF a BytesIO
+        pdf_data_str = pdf.output(dest='S').encode('latin1')
+        pdf_data = io.BytesIO(pdf_data_str)
+
+        # Enviar el PDF como respuesta
+        return send_file(
+            pdf_data,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+        ) 
 
 # Inicializar la aplicación Flask
 if __name__ == "__main__":
