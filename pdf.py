@@ -213,7 +213,6 @@ class Report_Generator(FPDF):
             "toll": self.toll
         }
         
-        print(data)
         
         apikey = "Nvam9tkrV2agWHjXdsdTYvYoMDg2dnUQxZC5wRJMkV5UkmF4fHNHvXfoiTsQejwk7wgj5PVo3DoS"
         
@@ -228,7 +227,7 @@ class Report_Generator(FPDF):
           response = requests.post(url, json=data, headers=headers)
 
           if response.status_code == 200:
-              print("Datos obtenidos exitosamente del backend (fetch from backend).")
+              print("Datos obtenidos exitosamente del backend (fetch from backend toll).")
               return response.json()
           else:
               print(f"Error al hacer el llamado: {response.status_code}")
@@ -899,6 +898,115 @@ class Report_Generator(FPDF):
                     self.cell(col_width_others, line_height, datum, border=0, align='C', fill=True)
             self.ln(line_height)
 
+    def general_rates_by_vehicle_by_state(self, report_data):
+        """
+        Generates a detailed report of vehicle rates.
+        """
+        # Obtener datos por parámetros
+        json_data = report_data
+
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+
+        # Procesar los datos obtenidos
+        try:
+            first_data_item = json_data.get("data", [])[0]  # Obtener el primer elemento de la lista "data"
+            results = first_data_item.get("data", {}).get("results", {})
+            general_data = results.get("tarifas", {})
+
+            if not general_data:
+                print("No se pudieron obtener los datos de tarifas. No se generará el reporte.")
+                return
+
+            # Inicializar totales y datos de la tabla
+            total_amount = total_ves_amount = total_pagos = total_ves_cash =  0
+            table_data = [["Tipo de Vehículo", "Cantidad", "% Cantidad", "Monto Bs", "% Monto", "Efvo. Bs"]]
+
+            # Calcular los totales
+            for data in general_data.values():
+                total_amount += data["cantidad"]
+                total_ves_amount += data["monto"]
+                total_pagos += data["cantidad"]
+                total_ves_cash += data["cash_collected"]["VES"]
+
+            # Añadir los datos a la tabla
+            for data in general_data.values():
+                amount = data["cantidad"]
+                total = data["monto"]
+                ves_cash = data["cash_collected"]["VES"]
+
+                # Calcular porcentajes
+                percentage_amount = (amount / total_amount) * 100 if total_amount else 0
+                percentage_ves_cash = (total / total_ves_amount) * 100 if total_ves_amount else 0
+
+                table_data.append([
+                    data["nombre"],
+                    locale.format_string('%.0f', amount, grouping=True),
+                    f"{locale.format_string('%.2f', percentage_amount, grouping=True)}%",
+                    locale.format_string('%.2f', total, grouping=True),
+                    f"{locale.format_string('%.2f', percentage_ves_cash, grouping=True)}%",
+                    locale.format_string('%.2f', ves_cash, grouping=True),
+                ])
+
+            # Agregar fila de totales
+            table_data.append([
+                "Totales",
+                locale.format_string('%.0f', total_pagos, grouping=True),
+                "",
+                locale.format_string('%.2f', total_ves_amount, grouping=True),
+                "",
+                locale.format_string('%.2f', total_ves_cash, grouping=True),
+            ])
+        except (KeyError, IndexError) as e:
+            print(f"Error al procesar los datos del backend: {str(e)}")
+            return
+
+        # Formatear el informe en PDF
+        col_width_first_column = (self.w - 20) * 0.25  # Ajuste de la primera columna (más estrecha)
+        col_width_others = (self.w - 20) * 0.15  # Ajuste para que otras columnas ocupen más espacio
+        line_height = 6
+
+        subtitle = "Resumen de Tarifas General"
+        self.subtitle_centered(subtitle)
+        self.set_line_width(0)
+
+        # Calcular el ancho total de la tabla
+        total_width = col_width_first_column + (col_width_others * (len(table_data[0]) - 1))
+
+        # Ajustar posición X para centrar la tabla en la página
+        x_position = (self.w - total_width) / 2
+        self.set_x(x_position)
+
+        # Imprimir la tabla
+        for j, row in enumerate(table_data):
+            for i, datum in enumerate(row):
+                # Configurar estilo según la fila (encabezado, pares, impares)
+                if j == 0:  # Encabezados
+                    self.set_font('Arial', 'B', 8)
+                    self.set_fill_color(255, 194, 0)
+                    self.set_text_color(40, 40, 40)
+                elif j == len(table_data) - 1:  # Totales
+                    self.set_font('Arial', 'B', 8)
+                    self.set_fill_color(235, 235, 235)
+                    self.set_text_color(40, 40, 40)
+                elif j % 2 == 0:  # Filas pares
+                    self.set_font('Arial', '', 8)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                else:  # Filas impares
+                    self.set_font('Arial', '', 8)
+                    self.set_fill_color(249, 249, 249)
+                    self.set_text_color(40, 40, 40)
+
+                # Ajustar el ancho de columnas
+                if i == 0:  # Primera columna (más ancha)
+                    self.cell((self.w - 20) * 0.3, line_height, datum, border=0, align='C', fill=True)
+                else:  # Otras columnas (más estrechas)
+                    self.cell((self.w - 20) * 0.14, line_height, datum, border=0, align='C', fill=True)
+            self.ln(line_height)  # Mover a la siguiente línea
+
+
     def general_rates_by_vehicle_2(self, report_data):
         """
         Generates a detailed report of vehicle rates with charts.
@@ -1560,17 +1668,36 @@ class Report_Generator(FPDF):
               results = first_data_item.get("data", {}).get("results", {})
               general_data = results.get("general_data", {})
 
+              # Obtengo los bs y vehiculos 
               total_payments_bs = general_data.get("total_payments_bs", 0)
+              vehicles = general_data.get("vehicles", 0)
               
+              #Datos de los porcentajes extraidos de los configs
+              configs = first_data_item.get("config", {})
+              fnt_percentage = configs.get("fnt_percentage", 0)
+              state_percentage = configs.get("gob_percentage", 0)
+              venpax_percentage = configs.get("venpax_percentage", 0)
+              
+              #Fondo nacional del transporte
+              total_fn_bs = total_payments_bs * fnt_percentage / 100
               
               #Gobernacion del estado
-              total_state_bs = total_payments_bs
+              total_state_bs = total_payments_bs * state_percentage / 100
+              
+              #Venpax
+              venpax_bs = total_payments_bs * venpax_percentage / 100
               
               finals = [
-                ('Monto Total en Bolívares'),
+                ('Monto Total en Bolívares', 'Total de Vehículos'),
                 (
                     f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
-                )
+                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"
+                ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.toll} ({state_percentage}%)', f'Venpax {self.toll} ({venpax_percentage}%)'),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
+                    f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
+                    f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"
+                ),
               ]
             
             else:
@@ -1592,6 +1719,98 @@ class Report_Generator(FPDF):
                       f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
                   )
               ]
+
+        except (KeyError, IndexError) as e:
+            print(f"Error al procesar los datos del backend: {str(e)}")
+            return
+
+        # Formatear los datos y añadirlos al PDF
+        for j, row in enumerate(finals):
+            for datum in row:
+                if j == 0 or j == 2:
+                    self.set_font('Arial', 'B', 10)
+                    self.set_fill_color(255, 194, 0)
+                    self.set_text_color(40, 40, 40)
+                elif j == 1 or j == 3:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                elif j == 4 or 6:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+
+                # Set the cell size and add the data to the report
+                # The cell size is calculated based on the number of columns in the row
+                self.cell((self.w - 20) / len(row), 11, datum, 0, 0, 'C', fill=True)
+            self.ln(11)
+
+        # Resetear el formato de texto al predeterminado
+        self.set_font('Arial', '', 12)
+
+    def general_info_institutional_by_toll(self,report_data):
+        """
+        Genera y formatea la sección de información general del reporte por peaje.
+        """
+        # Obtenemos los datos por parámetro
+        json_data = report_data
+
+        # Verificamos si la respuesta es válida
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+
+        try:
+            # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+            datas = json_data.get("data", [])
+
+            for data in datas:
+                for key,value in data.items():
+                    if self.toll == value:
+                        print("Entro")
+                        configs = data.get("config", {})
+                        results = data.get("data", {}).get("results", {})
+                        general_data = results.get("general_data", {})
+
+            
+            # Obtengo los bs y vehiculos 
+            total_payments_bs = general_data.get("total_payments_bs", 0)
+            vehicles = general_data.get("vehicles", 0) 
+
+            fnt_percentage = configs.get("fnt_percentage", 0)
+            state_percentage = configs.get("gob_percentage", 0)
+            venpax_percentage = configs.get("venpax_percentage", 0)
+            
+            #Fondo nacional del transporte
+            total_fn_bs = total_payments_bs * fnt_percentage / 100
+            
+            #Gobernacion del estado
+            total_state_bs = total_payments_bs * state_percentage / 100
+            
+            #Venpax
+            venpax_bs = total_payments_bs * venpax_percentage / 100
+            
+            finals = [
+            ('Monto Total en Bolívares', 'Total de Vehículos'),
+            (
+                f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
+                f"{locale.format_string('%.0f', vehicles, grouping=True)}"
+            ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.toll} ({state_percentage}%)', f'Venpax {self.toll} ({venpax_percentage}%)'),
+            (
+                f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
+                f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
+                f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"
+            ),
+            ]
+
+
+
+
+
+            
+            
+            
+
 
         except (KeyError, IndexError) as e:
             print(f"Error al procesar los datos del backend: {str(e)}")
@@ -1834,6 +2053,8 @@ class General_PDF_Report_Institutional_By_State(Resource):
         report_name = payload.get('report_name', 'general_report').replace(' ', '_')
         supervisor_name = payload.get('username')
 
+
+
         if not start_date or not end_date:
             return {"message": "Los campos 'start_date', 'end_date' y 'username' son obligatorios."}, 400
 
@@ -1841,17 +2062,50 @@ class General_PDF_Report_Institutional_By_State(Resource):
         pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
                                        general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
 
-        # Obtener los datos del backend
-        report_data = pdf.fetch_data_from_backend()
+        if state is None:
+            # Obtener los datos del backend
+            report_data = pdf.fetch_data_from_backend()
+             # Verificar si report_data es None o no es un diccionario
+            if not report_data:
+                return {"message": "Error al obtener los datos del backend."}, 500
+            if not isinstance(report_data, dict):
+                return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+            pdf.add_page()
+            pdf.general_info_institutional_by_state(report_data)
+            pdf.general_rates_by_vehicle_2(report_data)
+            pdf.add_page()
+            pdf.general_rates_by_vehicle_by_state(report_data)
+        else:
 
-        # Verificar si report_data es None o no es un diccionario
-        if not report_data:
-            return {"message": "Error al obtener los datos del backend."}, 500
-        if not isinstance(report_data, dict):
-            return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+            start_date = datetime.fromisoformat(start_date)
+            end_date= datetime.fromisoformat(end_date)
+            difference_days = end_date - start_date
 
-        pdf.add_page()
-        pdf.general_info_institutional(report_data)
+            report_data = pdf.fetch_data_by_toll_from_backend()
+            # Verificar si report_data es None o no es un diccionario
+            if not report_data:
+                return {"message": "Error al obtener los datos del backend."}, 500
+            if not isinstance(report_data, dict):
+                return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+            if difference_days > timedelta(days=3):
+                pdf.add_page()
+                pdf.general_info_institutional_by_toll(report_data)
+                pdf.linechart_payments_and_amount_by_date(report_data)
+                pdf.general_rates_by_vehicle_by_state(report_data)
+                pdf.add_page()
+                pdf.general_rates_by_vehicle_2(report_data)
+            else:
+                pdf.add_page()
+                pdf.general_info_institutional_by_toll(report_data)
+                pdf.general_rates_by_vehicle_by_state(report_data)
+                pdf.add_page()
+                pdf.general_rates_by_vehicle_2(report_data)
+
+
+
+
+
+           
 
         # Convertir el PDF a BytesIO
         pdf_data_str = pdf.output(dest='S').encode('latin1')
