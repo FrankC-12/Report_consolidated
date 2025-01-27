@@ -307,11 +307,17 @@ class Report_Generator(FPDF):
             self.cell(203 - self.get_string_width(f'Estado: Todos'),5, 'Estado:  ',align='R')
             self.set_font('Arial', '', 8.5)
             self.cell(0, 5, f' Todos', 0, 1, align='R')
-        if self.toll:
+        if self.toll is not None:
             self.set_font('Arial', 'B', 8.5)
             self.cell(203 - self.get_string_width(f'Peaje:  {self.toll}'),5, 'Peaje:  ',align='R')
             self.set_font('Arial', '', 8.5)
             self.cell(0, 5, f' {self.toll}', 0, 1, align='R')
+        else:
+            self.set_font('Arial', 'B', 8.5)
+            self.cell(203 - self.get_string_width(f'Peaje: Todos'),5, 'Peaje:  ',align='R')
+            self.set_font('Arial', '', 8.5)
+            self.cell(0, 5, f' {' Todos'}', 0, 1, align='R')
+            
 
         self.line(10, 48, 200, 48)
         self.ln(5)
@@ -534,9 +540,7 @@ class Report_Generator(FPDF):
                 fig.savefig(bio, format="png", bbox_inches='tight')
                 img_encoded = base64.b64encode(bio.getvalue()).decode()
 
-                # Save the image to a temporary file
-                with open("temp_img_line_collected.png", "wb") as f:
-                    f.write(base64.b64decode(img_encoded))
+                
 
                 # Add the image to the report
                 self.ln(5)
@@ -1704,7 +1708,7 @@ class Report_Generator(FPDF):
                 (
                     f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
                     f"{locale.format_string('%.0f', vehicles, grouping=True)}"
-                ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.toll} ({state_percentage}%)', f'Venpax {self.toll} ({venpax_percentage}%)'),
+                ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.state_name} ({state_percentage}%)', f'Venpax {self.state_name} ({venpax_percentage}%)'),
                 (
                     f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
                     f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
@@ -1721,7 +1725,6 @@ class Report_Generator(FPDF):
               # Extraer datos generales
               general_data = json_data["data"][0]["data"]["results"]["general_data"]
               total_payments_bs = general_data.get("total_payments_bs", 0)
-              total_payments_usd = general_data.get("total_payments_usd", 0)
               vehicles = general_data.get("vehicles", 0)
 
               # Renderizar tabla de resultados dinámicamente
@@ -1807,7 +1810,7 @@ class Report_Generator(FPDF):
             (
                 f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
                 f"{locale.format_string('%.0f', vehicles, grouping=True)}"
-            ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Peaje {self.toll} ({state_percentage}%)', f'Venpax {self.toll} ({venpax_percentage}%)'),
+            ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.state_name} ({state_percentage}%)', f'Venpax {self.state_name} ({venpax_percentage}%)'),
             (
                 f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
                 f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
@@ -1843,64 +1846,7 @@ class Report_Generator(FPDF):
         # Resetear el formato de texto al predeterminado
         self.set_font('Arial', '', 12)
 
-    def general_info_institutional(self,report_data):
-        """
-        Genera y formatea la sección de información general del reporte.
-        """
-        # Obtenemos los datos por parámetro
-        json_data = report_data
-        
-        # Verificamos si la respuesta es válida
-        if not json_data:
-            print("No se pudo obtener los datos del backend. No se generará el PDF.")
-            return
-          
-        try:
-          
-          # Extraemos los datos relevantes, con valores por defecto en caso de que falten
-          first_data_item = json_data.get("data", [])[0]
-          results = first_data_item.get("data", {}).get("results", {})
-          general_data = results.get("general_data", {})
-          
-          total_payments_bs = general_data.get("total_payments_bs", 0)
-                
-          #Gobernacion del estado
-          total_state_bs = total_payments_bs
-          
-          finals = [
-            ('Monto Total en Bolívares'),
-            (
-                f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
-            )
-          ]
-          
-        except (KeyError, IndexError) as e:
-            print(f"Error al procesar los datos del backend: {str(e)}")
-            return
-          
-        # Formatear los datos y añadirlos al PDF
-        for j, row in enumerate(finals):
-            for datum in row:
-                if j == 0 or j == 2:
-                    self.set_font('Arial', 'B', 10)
-                    self.set_fill_color(255, 194, 0)
-                    self.set_text_color(40, 40, 40)
-                elif j == 1 or j == 3:
-                    self.set_font('Arial', 'B', 12)
-                    self.set_fill_color(255, 255, 255)
-                    self.set_text_color(40, 40, 40)
-                elif j == 4 or 6:
-                    self.set_font('Arial', 'B', 12)
-                    self.set_fill_color(255, 255, 255)
-                    self.set_text_color(40, 40, 40)
-
-                # Set the cell size and add the data to the report
-                # The cell size is calculated based on the number of columns in the row
-                self.cell((self.w - 20) / len(row), 11, datum, 0, 0, 'C', fill=True)
-            self.ln(11)
-
-        # Resetear el formato de texto al predeterminado
-        self.set_font('Arial', '', 12)
+    
 
 @ns.route('/General-PDF-Report-Consolidate')
 class GeneralPDFReportConsolidate(Resource):
@@ -2064,7 +2010,10 @@ class General_PDF_Report_Institutional_By_State(Resource):
         pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
         general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
 
-        if state is None:
+        if state and not toll:
+            start_date = datetime.fromisoformat(start_date)
+            end_date= datetime.fromisoformat(end_date)
+            difference_days = end_date - start_date
             # Obtener los datos del backend
             report_data = pdf.fetch_data_from_backend()
              # Verificar si report_data es None o no es un diccionario
@@ -2072,13 +2021,22 @@ class General_PDF_Report_Institutional_By_State(Resource):
                 return {"message": "Error al obtener los datos del backend."}, 500
             if not isinstance(report_data, dict):
                 return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
-            pdf.add_page()
-            pdf.general_info_institutional_by_state(report_data)
-            pdf.general_rates_by_vehicle_2(report_data)
-            pdf.add_page()
-            pdf.general_rates_by_vehicle_by_state(report_data)
-        else:
 
+            if difference_days > timedelta(days=3):
+                pdf.add_page()
+                pdf.general_info_institutional_by_state(report_data)
+                pdf.linechart_payments_and_amount_by_date(report_data)
+                pdf.general_rates_by_vehicle_by_state(report_data)
+                pdf.add_page()
+                pdf.general_rates_by_vehicle_2(report_data)
+            else:
+                pdf.add_page()
+                pdf.general_info_institutional_by_state(report_data)
+                pdf.general_rates_by_vehicle_by_state(report_data)
+                pdf.add_page()
+                pdf.general_rates_by_vehicle_2(report_data)
+
+        else:
             start_date = datetime.fromisoformat(start_date)
             end_date= datetime.fromisoformat(end_date)
             difference_days = end_date - start_date
@@ -2102,13 +2060,6 @@ class General_PDF_Report_Institutional_By_State(Resource):
                 pdf.general_rates_by_vehicle_by_state(report_data)
                 pdf.add_page()
                 pdf.general_rates_by_vehicle_2(report_data)
-
-
-
-
-
-           
-
         # Convertir el PDF a BytesIO
         pdf_data_str = pdf.output(dest='S').encode('latin1')
         pdf_data = io.BytesIO(pdf_data_str)
@@ -2121,52 +2072,7 @@ class General_PDF_Report_Institutional_By_State(Resource):
             download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
         )
 
-@ns.route('/General-PDF-Report-Institutional')
-class General_PDF_Report_Institutional(Resource):
-    @ns.expect(generate_report_general_report_institutional)
-    def post(self):
-        """ Generar el reporte por peaje para usuario institucional """
-        # Verificar si payload es None
-        payload = api.payload         
-                
-        if not payload:
-            return {"message": "El cuerpo de la solicitud está vacío o no es válido."}, 400
-          
-        # Validar y obtener los parámetros
-        start_date = payload.get('start_date')
-        end_date = payload.get('end_date')
-        state = payload.get('state')
-        toll = payload.get('toll')
-        
-        if not (start_date or end_date or state or toll):
-          return {"message": "Todos los campos son obligatorios."}, 400
-        
-        # Generar el reporte 
-        pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=None,
-            general_report_type=None, report_name=None, state=state,toll=toll)
-        
-        # Obtener los datos del backend
-        report_data = pdf.fetch_data_by_toll_from_backend()
-        
-        # Verificar si report_data es None o no es un diccionario
-        if not report_data:
-            return {"message": "Error al obtener los datos del backend."}, 500
-        if not isinstance(report_data, dict):
-            return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
-          
-        pdf.add_page()
-        
-        # Convertir el PDF a BytesIO
-        pdf_data_str = pdf.output(dest='S').encode('latin1')
-        pdf_data = io.BytesIO(pdf_data_str)
 
-        # Enviar el PDF como respuesta
-        return send_file(
-            pdf_data,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
-        )
 
 @ns.route('/General-PDF-Report-ministry')
 class General_PDF_Report_Ministry(Resource):
