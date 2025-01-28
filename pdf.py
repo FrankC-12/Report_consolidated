@@ -1,7 +1,7 @@
 import requests
 import io
 from datetime import datetime
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, Response
 from flask_restx import Api, Resource, fields
 from fpdf import FPDF
 import pandas as pd
@@ -22,7 +22,7 @@ from io import BytesIO
 import base64
 import pytz
 import requests
-import json
+import csv
 
 
 # Define el modelo del payload
@@ -1846,7 +1846,150 @@ class Report_Generator(FPDF):
         # Resetear el formato de texto al predeterminado
         self.set_font('Arial', '', 12)
 
-    
+    def general_info_csv(self, report_data):
+        """
+        Procesa los datos y genera un archivo CSV con una tabla que muestra tarifas generales de vehículos.
+        """
+        try:
+            # Extraer datos del JSON
+            first_data_item = report_data.get("data", [])[0]
+            results = first_data_item.get("data", {}).get("results", {})
+            general_data = results.get("tarifas", {})
+
+            if not general_data:
+                raise ValueError("No se encontraron datos de tarifas.")
+
+            # Inicializar totales
+            total_amount = total_ves_amount = total_pagos = total_ves_cash = 0
+            csv_data = [["Tipo de Vehículo", "Cantidad", "% Cantidad", "Monto Bs", "% Monto", "Efvo. Bs"]]
+
+            # Calcular totales
+            for data in general_data.values():
+                total_amount += data["cantidad"]
+                total_ves_amount += data["monto"]
+                total_pagos += data["cantidad"]
+                total_ves_cash += data["cash_collected"]["VES"]
+
+            # Añadir datos al CSV
+            for data in general_data.values():
+                amount = data["cantidad"]
+                total = data["monto"]
+                ves_cash = data["cash_collected"]["VES"]
+
+                # Calcular porcentajes
+                percentage_amount = (amount / total_amount) * 100 if total_amount else 0
+                percentage_ves_cash = (total / total_ves_amount) * 100 if total_ves_amount else 0
+
+                csv_data.append([
+                    data["nombre"],
+                    locale.format_string('%.0f', amount, grouping=True),
+                    f"{locale.format_string('%.2f', percentage_amount, grouping=True)}%",
+                    locale.format_string('%.2f', total, grouping=True),
+                    f"{locale.format_string('%.2f', percentage_ves_cash, grouping=True)}%",
+                    locale.format_string('%.2f', ves_cash, grouping=True),
+                ])
+
+            # Fila de totales
+            csv_data.append([
+                "Totales",
+                locale.format_string('%.0f', total_pagos, grouping=True),
+                "",
+                locale.format_string('%.2f', total_ves_amount, grouping=True),
+                "",
+                locale.format_string('%.2f', total_ves_cash, grouping=True),
+            ])
+
+            # Generar CSV en memoria
+            output = io.StringIO()
+            writer = csv.writer(output)
+            
+            # Título para la primera tabla
+            writer.writerow(["Reporte de Tarifas Generales de Vehículos"])
+            writer.writerow([])  # Línea en blanco entre el título y la tabla
+            writer.writerows(csv_data)
+            output.write("\n")  # Añadir espacio antes de la siguiente tabla
+
+            output.seek(0)
+            return output.getvalue()
+
+        except (KeyError, IndexError, ValueError) as e:
+            raise ValueError(f"Error al procesar los datos: {str(e)}")
+        
+    def general_rates_by_vehicle_state_csv(self, report_data):
+        """
+        Genera un archivo CSV con la información de tarifas de vehículos agrupadas por estado.
+        """
+        try:
+            # Obtener datos por parámetros
+            json_data = report_data
+
+            if not json_data:
+                raise ValueError("No se pudo obtener los datos del backend. No se generará el CSV.")
+
+            # Procesar los datos obtenidos
+            first_data_item = json_data.get("data", [])[0]  # Obtener el primer elemento de la lista "data"
+            results = first_data_item.get("data", {}).get("results", {})
+            general_data = results.get("tarifas", {})
+
+            if not general_data:
+                raise ValueError("No se pudieron obtener los datos de tarifas. No se generará el reporte.")
+
+            # Inicializar totales y datos de la tabla
+            total_amount = total_ves_amount = total_pagos = total_ves_cash = 0
+            table_data = [["Tipo de Vehículo", "Cantidad", "% Cantidad", "Monto Bs", "% Monto", "Efvo. Bs"]]
+
+            # Calcular los totales
+            for data in general_data.values():
+                total_amount += data["cantidad"]
+                total_ves_amount += data["monto"]
+                total_pagos += data["cantidad"]
+                total_ves_cash += data["cash_collected"]["VES"]
+
+            # Añadir los datos a la tabla
+            for data in general_data.values():
+                amount = data["cantidad"]
+                total = data["monto"]
+                ves_cash = data["cash_collected"]["VES"]
+
+                # Calcular porcentajes
+                percentage_amount = (amount / total_amount) * 100 if total_amount else 0
+                percentage_ves_cash = (total / total_ves_amount) * 100 if total_ves_amount else 0
+
+                table_data.append([
+                    data["nombre"],
+                    locale.format_string('%.0f', amount, grouping=True),
+                    f"{locale.format_string('%.2f', percentage_amount, grouping=True)}%",
+                    locale.format_string('%.2f', total, grouping=True),
+                    f"{locale.format_string('%.2f', percentage_ves_cash, grouping=True)}%",
+                    locale.format_string('%.2f', ves_cash, grouping=True),
+                ])
+
+            # Agregar fila de totales
+            table_data.append([
+                "Totales",
+                locale.format_string('%.0f', total_pagos, grouping=True),
+                "",
+                locale.format_string('%.2f', total_ves_amount, grouping=True),
+                "",
+                locale.format_string('%.2f', total_ves_cash, grouping=True),
+            ])
+
+            # Crear un buffer para el CSV
+            output = io.StringIO()
+            csv_writer = csv.writer(output)
+
+            # Título para la segunda tabla
+            csv_writer.writerow(["Reporte de Tarifas de Vehículos por Estado"])
+            csv_writer.writerow([])  # Línea en blanco entre el título y la tabla
+
+            # Escribir los datos de la tabla en el CSV
+            csv_writer.writerows(table_data)
+            output.seek(0)
+
+            return output.getvalue()
+
+        except (KeyError, IndexError) as e:
+            raise ValueError(f"Error al procesar los datos: {str(e)}")
 
 @ns.route('/General-PDF-Report-Consolidate')
 class GeneralPDFReportConsolidate(Resource):
@@ -2152,6 +2295,51 @@ class General_PDF_Report_Ministry(Resource):
                 as_attachment=True,
                 download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
             ) 
+
+#Endpoint para generar el CSV
+@ns.route('/General-CSV-Report')
+class GeneralCSVReport(Resource):
+    @ns.expect(generate_report_general_report_consolidated)
+    def post(self):
+        payload = request.json
+
+        if not payload:
+            return {"message": "El cuerpo de la solicitud está vacío o no es válido."}, 400
+
+        try:
+            # Crear instancia del generador de reportes
+            pdf = Report_Generator(
+                start_date=payload['start_date'],
+                end_date=payload['end_date'],
+                supervisor_info=None,
+                general_report_type=None,
+                report_name=payload.get('report_name', 'general_report').replace(' ', '_'),
+                state=payload.get('state', None),
+                toll=payload.get('toll', None)
+            )
+
+            # Obtener los datos del backend
+            report_data = pdf.fetch_data_from_backend()
+
+            if not report_data:
+                return {"message": "Error al obtener los datos del backend."}, 500
+
+            # Generar las dos secciones del CSV
+            general_info_csv = pdf.general_info_csv(report_data)
+            rates_by_state_csv = pdf.general_rates_by_vehicle_state_csv(report_data)
+
+            # Combinar los dos reportes en un solo archivo CSV
+            combined_csv_content = general_info_csv + "\n\n" + rates_by_state_csv
+
+            # Configurar la respuesta HTTP para descargar el CSV
+            response = Response(combined_csv_content, mimetype='text/csv')
+            response.headers['Content-Disposition'] = 'attachment; filename=combined_rates_report.csv'
+            return response
+        
+
+        except Exception as e:
+            return {"message": f"Ocurrió un error al procesar la solicitud: {str(e)}"}, 500
+
 
 # Inicializar la aplicación Flask
 if __name__ == "__main__":
