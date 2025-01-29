@@ -2,8 +2,12 @@
 venv/
 #Archivo .env 
 .env
+<<<<<<< HEAD
+
+=======
 #Otros archivos
 node_modules
 package.json
 package-lock.json
 .pylintrc
+>>>>>>> a5a46bfc206388ef42348c349e23d9814e94ace2
