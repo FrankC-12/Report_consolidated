@@ -131,12 +131,14 @@ class Report_Generator(FPDF):
             dict: El JSON de respuesta si la solicitud fue exitosa, None si no lo fue.
         """
         url = "http://127.0.0.1:3001/v1/consolidatedReport"
+        
+        print(self.state)
 
         if self.state:
             data = {
                 "start_date": self.start_date,
                 "end_date": self.end_date,
-                "state": self.state
+                "state": self.state_name
             }
         else:
             data = {
@@ -181,7 +183,7 @@ class Report_Generator(FPDF):
         data = {
             "start_date": self.start_date,
             "end_date": self.end_date,
-            "state": self.state,
+            "state": self.state_name,
             "toll": self.toll
         }
         
@@ -279,7 +281,7 @@ class Report_Generator(FPDF):
             self.set_font('Arial', 'B', 8.5)
             self.cell(203 - self.get_string_width(f'Peaje: Todos'),5, 'Peaje:  ',align='R')
             self.set_font('Arial', '', 8.5)
-            self.cell(0, 5, f' {' Todos'}', 0, 1, align='R')
+            self.cell(0, 5, ' Todos', 0, 1, align='R')
             
 
         self.line(10, 48, 200, 48)
@@ -1213,6 +1215,246 @@ class Report_Generator(FPDF):
                 self.image("temp_img_chart_collected_per_vehicles2.png", x=x_position, h=140, w=180)
             os.remove("temp_img_chart_collected_per_vehicles2.png")
 
+        except Exception as e:
+            print(f"Error procesando los datos: {e}")
+
+    def general_rates_by_vehicle_3(self, report_data):
+        """
+        Generates a detailed report of vehicle rates by channels with charts.
+        """
+        # Obtener datos desde el backend
+
+        date_format = "%Y-%m-%dT%H:%M:%S"
+        
+        try:
+          # Calcular la diferencia de días entre las fechas de inicio y fin
+          start_date_dt = datetime.strptime(self.start_date, date_format)
+          end_date_dt = datetime.strptime(self.end_date, date_format)
+        except ValueError as e:
+            print(f"Error en el formato de las fechas: {e}")
+            return
+
+        delta_days = (end_date_dt - start_date_dt).days
+        
+        json_data = report_data
+        
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+          
+        # Procesar los datos obtenidos
+        try:
+          
+          first_data_item = json_data.get("data", [])[0]
+          results = first_data_item.get("data", {}).get("results", {})
+          general_data = results.get("tickets", {}) # .get("tarifas", {})
+
+          if not general_data:
+              print("No se pudieron obtener los datos de tarifas. No se generará el reporte.")
+              return
+
+          # Inicializar datos
+          
+          for key, channel in general_data.items():
+            
+            print(channel.get("channel_name"))
+            
+            inner_data = channel.get("tarifas", {})
+            
+            nombres = []
+            cantidades = []
+            montos = []
+            
+            print(inner_data)
+            
+            for tipo, data in inner_data.items():
+              nombres.append(data["vehicle_name"])
+              cantidades.append(data["cantidad"])
+              montos.append(data["monto"])
+
+            # Crear DataFrames
+            df_1 = pd.DataFrame({'Nombre': nombres, 'Cantidad': cantidades})
+            df_2 = pd.DataFrame({'Nombre': nombres, 'Monto': montos})
+
+            # Ordenar datos
+            orden_vehiculos = {
+                'Vehículo liviano': 1, 'Microbús': 2, 'Autobús': 3,
+                'Camión liviano': 4, 'Camión 2 ejes': 5, 'Camión 3 ejes': 6,
+                'Camión 4 ejes': 7, 'Camión 5 ejes': 8, 'Camión 6+ ejes': 9,
+                'Exonerado General': 10, 'Exonerado Ambulancia': 11,
+                'Exonerado Seguridad': 12, 'Exonerado Gobernación': 13,
+                'Exonerado PDVSA': 14
+            }
+            df_1['Orden'] = df_1['Nombre'].map(orden_vehiculos)
+            df_1_sorted = df_1.sort_values('Orden')
+
+            df_2['Orden'] = df_2['Nombre'].map(orden_vehiculos)
+            df_2_sorted = df_2.sort_values('Orden')
+
+            # Configuramos el tamaño de la figura
+            bio = BytesIO()   
+
+            plt.rcParams.update({'font.family': 'Arial'})
+
+            if delta_days > 3:
+                fig, ax = plt.subplots(2, 2, figsize=(16, 17))
+            else:
+                fig, ax = plt.subplots(2, 2, figsize=(16, 12))
+            # Crear gráficos de barras horizontales
+            sns.barplot(
+                ax=ax[0, 0],
+                x='Cantidad', 
+                y='Nombre', 
+                data=df_1_sorted,
+                color="#FFCB26",
+                saturation=1
+            )
+            sns.barplot(
+            ax=ax[0, 1],
+            x='Monto', 
+            y='Nombre', 
+            data=df_2_sorted,
+            color="#FFCB26",
+            saturation=1
+            )
+
+            ax[0, 0].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
+            ax[0, 0].set_xticklabels(ax[0, 0].get_xticklabels(), rotation=45, ha='center')
+
+            ax[0, 1].xaxis.set_ticks_position('bottom')  # Agregar ticks en la parte superior e inferior
+            ax[0, 1].set_xticklabels(ax[0, 1].get_xticklabels(), rotation=45, ha='center')
+
+            # Agregar títulos a cada gráfica
+            ax[0, 0].set_title('Cantidad de Pagos por Categoría', fontsize=15, pad=20, loc='center', weight='bold')
+            ax[0, 1].set_title('Monto de Pagos por Categoría', fontsize=15, pad=20, loc='center', weight='bold')
+
+            # Añadir etiquetas de porcentaje encima de cada barra
+            for index, value in enumerate(df_1_sorted['Cantidad']):
+                ax[0, 0].text(df_1_sorted['Cantidad'].max() * 0.05, index, f'Total = {str(locale.format_string("%.f", value, True))}', va='center', fontsize=10, color='black', weight='bold')
+
+            for index, value in enumerate(df_2_sorted['Monto']):
+                ax[0, 1].text(df_2_sorted['Monto'].max() * 0.05, index, f'Bs. {str(locale.format_string("%.2f", value, True))}', va='center', fontsize=10, color='black', weight='bold')
+
+            ax[0, 0].set_xlim(0, df_1_sorted['Cantidad'].max() * 1.2)
+            ax[0, 1].set_xlim(0, df_2_sorted['Monto'].max() * 1.2)
+
+            def thousands_cantidad(x, pos):
+                return str(locale.format_string('%.f', x, True))
+
+            def thousands_monto(x, pos):
+                return str(locale.format_string('%.2f', x, True))
+
+            formatter_cantidad = FuncFormatter(thousands_cantidad)
+            formatter_monto = FuncFormatter(thousands_monto)
+
+            # Aplicar el formateador al eje x
+            ax[0, 0].xaxis.set_major_formatter(formatter_cantidad)
+            ax[0, 1].xaxis.set_major_formatter(formatter_monto)
+
+            # Añadir etiquetas y títulos con margen superior
+            ax[0, 0].set_xlabel('Cantidad de pagos', fontsize=16, labelpad=20, weight='bold')
+            ax[0, 0].set_ylabel('Categorías', fontsize=16, weight='bold', labelpad=20)
+            ax[0, 1].set_xlabel('Monto Recolectado', fontsize=16, labelpad=20, weight='bold')
+            ax[0, 1].set_ylabel('', fontsize=12, weight='bold')
+
+            # Eliminar etiquetas del eje y de la segunda gráfica de barras
+            ax[0, 1].set_yticklabels([])
+            ax[0, 1].tick_params(left=False)
+            ax[0, 0].grid(False)
+            ax[0, 1].grid(False)
+
+            # Añadir líneas horizontales entre las barras
+            for i in range(len(df_1_sorted)):
+                ax[0, 0].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
+                ax[0, 1].axhline(y=i-0.5, color='grey', linewidth=0.8, linestyle='--')
+
+            # Agregar gráficas de torta
+      
+            df_3 = pd.DataFrame({'Nombre': nombres, 'Cantidad': cantidades})
+            df_4 = pd.DataFrame({'Nombre': nombres, 'Monto': montos})
+
+            delta_days = (end_date_dt - start_date_dt).days
+
+            colorPalette = [
+                        '#FFC200', 
+                        '#FF7F50', 
+                        '#FF6B81',
+                        '#66CCCC', 
+                        '#6699CC', 
+                        '#FF8C00', 
+                        '#99CCFF', 
+                        '#66FF99',
+                        '#FF99CC', 
+                        '#CC99FF', 
+                        '#FF6348', 
+                        '#FF69B4', 
+                        '#FFFF99', 
+                        '#99FF99'  
+                    ]
+            
+            df_4['Orden'] = df_4['Nombre'].map(orden_vehiculos)
+
+            def my_autopct(pct):
+                return f'{pct:.1f}%' if pct > 4 else ''
+
+            if delta_days > 3:
+                ax[1, 0].pie(df_3['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.3)
+                ax[1, 1].pie(df_4['Monto'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.3)
+                plt.subplots_adjust(wspace=0.035, hspace=0.7)
+                ax[1, 0].set_title('Porcentaje de Cantidad de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-1.12, y=1.15)
+                ax[1, 1].legend(loc='upper center', labels=df_4['Nombre'], bbox_to_anchor=(-0.6, -0.2), ncol=3, prop={'size': 15})
+
+                ax[1, 1].set_title('Porcentaje de Monto de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-0.26, y=1.15)
+            else:
+                ax[1, 0].pie(df_3['Cantidad'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.1)
+                ax[1, 1].pie(df_4['Monto'], labels=None, autopct=my_autopct, colors=colorPalette, wedgeprops=dict(edgecolor='w', linewidth=1.5), radius=1.1)
+                plt.subplots_adjust(wspace=0.035, hspace=0.7)
+                
+                ax[1, 0].set_title('Porcentaje de Cantidad de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-1.6, y=1.05)
+                ax[1, 0].legend(loc='upper center', labels=df_4['Nombre'], bbox_to_anchor=(2.35, -0.1), ncol=3, prop={'size': 13})
+                ax[1, 1].set_title('Porcentaje de Monto de Pagos por Categoría', fontsize=16, loc='left', weight='bold', x=-0.5, y=1.05)
+            ax[1, 0].set_xlim(-0.1, 1)
+            ax[1, 1].set_xlim(-0.8, 1)
+
+            # Define el color para las líneas
+            color_lineas1 = 'white'
+            color_lineas2 = 'grey'
+
+            # Añadir líneas horizontales entre las barras
+            for i in range(len(df_1_sorted)):
+                ax[0, 0].axhline(y=i-0.5, color=color_lineas2, linewidth=0.8, linestyle='--')
+                ax[0, 1].axhline(y=i-0.5, color=color_lineas2, linewidth=0.8, linestyle='--')
+
+            # Añadir una línea al borde de la gráfica
+            for i in range(2):
+                for j in range(2):
+                    ax[i, j].spines['top'].set_color(color_lineas1)
+                    ax[i, j].spines['right'].set_color(color_lineas1)
+                    ax[i, j].spines['bottom'].set_color(color_lineas2)
+                    ax[i, j].spines['left'].set_color(color_lineas2)
+            
+            # Mostramos el gráfico
+            fig.savefig(bio, format="png", bbox_inches='tight')
+            img_encoded = base64.b64encode(bio.getvalue()).decode()
+            with open("temp_img_chart_collected_per_vehicles2.png", "wb") as f:
+                f.write(base64.b64decode(img_encoded))
+            self.ln(5)
+
+            self.set_font('Arial', 'B', 11.5)
+            self.set_fill_color(255,194,0)
+            self.set_text_color(40,40,40)
+            line_height = self.font_size * 2.5
+            self.cell(0, line_height, 'Gráficos de Vehículos', border=0, align='L', fill=True, ln=1)
+
+            self.ln(7)
+            x_position = (216 - 180) / 2 
+
+            if delta_days > 3:
+                self.image("temp_img_chart_collected_per_vehicles2.png", x=x_position, h=200, w=180)
+            else:
+                self.image("temp_img_chart_collected_per_vehicles2.png", x=x_position, h=140, w=180)
+            os.remove("temp_img_chart_collected_per_vehicles2.png")
+    
         except Exception as e:
             print(f"Error procesando los datos: {e}")
 
@@ -2163,8 +2405,6 @@ class General_PDF_Report_Institutional_By_State(Resource):
         except Exception as e:
             return {"message": f"Error al generar el reporte: {str(e)}"}, 500
 
-
-
 @ns.route('/General-PDF-Report-ministry')
 class General_PDF_Report_Ministry(Resource):
     @ns.expect(generate_report_general_report_ministry)
@@ -2190,6 +2430,10 @@ class General_PDF_Report_Ministry(Resource):
         pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=None,
             general_report_type=None, report_name=report_name, state=state,toll=toll)
         
+        print(state)
+        
+        pdf.add_page()
+        
         # Obtener los datos del backend
         report_data = pdf.fetch_data_from_backend()
         
@@ -2202,8 +2446,6 @@ class General_PDF_Report_Ministry(Resource):
         start_date = datetime.fromisoformat(start_date)
         end_date= datetime.fromisoformat(end_date)
         difference_days = end_date - start_date
-        
-        pdf.add_page()
 
         if difference_days > timedelta(days=3):
           
@@ -2244,6 +2486,7 @@ class General_PDF_Report_Ministry(Resource):
                 download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
             ) 
 
+      
 #Endpoint para generar el CSV
 @ns.route('/General-CSV-Report')
 class GeneralCSVReport(Resource):
@@ -2307,7 +2550,6 @@ class GeneralCSVReport(Resource):
         
 
         
-
 
 # Inicializar la aplicación Flask
 if __name__ == "__main__":
