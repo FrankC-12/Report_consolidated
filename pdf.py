@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 import datetime as dt
 import locale
 from PIL import Image
-from io import BytesIO
+from io import BytesIO, StringIO
 import base64
 import pytz
 import requests
@@ -121,44 +121,7 @@ class Report_Generator(FPDF):
         self.report_name = report_name
         self.general_report_type = general_report_type 
     
-    def fetch_data_state(self, state):
-        """
-        Realiza una solicitud al backend y retorna el JSON de respuesta.
-
-        Returns:
-            dict: El JSON de respuesta si la solicitud fue exitosa, None si no lo fue.
-        """
-        url = "http://127.0.0.1:3001/v1/consolidatedReport"
-
-        data = {
-            "start_date": self.start_date,
-            "end_date": self.end_date,
-            "state": state
-        }
-        
-        
-        apikey = "Nvam9tkrV2agWHjXdsdTYvYoMDg2dnUQxZC5wRJMkV5UkmF4fHNHvXfoiTsQejwk7wgj5PVo3DoS"
-        
-        if not apikey:
-            return {"message": "Error al obtener el API key del backend."}, 500
-        
-        headers = {
-            "X-API-Key": apikey
-        }
-
-        try:
-            response = requests.post(url, json=data, headers=headers)
-
-            if response.status_code == 200:
-                print("Datos obtenidos exitosamente del backend (fetch from backend).")
-                return response.json()
-            else:
-                print(f"Error al hacer el llamado: {response.status_code}")
-                print("Mensaje de error:", response.json())
-                return None
-        except requests.exceptions.RequestException as e:
-            print(f"Error en la solicitud al backend: {e}")
-            return None
+    
         
     def fetch_data_from_backend(self):
         """
@@ -1661,107 +1624,85 @@ class Report_Generator(FPDF):
         self.cell(w, 20, subtitle, 0, 1, 'C', 0)
 
     def general_info_institutional_by_state(self,report_data):
-        """
-        Genera y formatea la sección de información general del reporte por estado.
-        """
-        # Obtenemos los datos por parámetro
-        json_data = report_data
+        # Simulación de los datos que llegarían de tu función original
+        json_data = report_data  # Asegúrate de que report_data esté correctamente definido
 
-        # Verificamos si la respuesta es válida
         if not json_data:
-            print("No se pudo obtener los datos del backend. No se generará el PDF.")
-            return
+            return "No se pudo obtener los datos del backend.", 400
 
-        
         # Procesar los datos obtenidos
         try:
-            # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
-
             if self.state_name:
-              
-              # Extraemos los datos relevantes, con valores por defecto en caso de que falten
-              first_data_item = json_data.get("data", [])[0]
-              results = first_data_item.get("data", {}).get("results", {})
-              general_data = results.get("general_data", {})
+                # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+                first_data_item = json_data.get("data", [])[0]
+                results = first_data_item.get("data", {}).get("results", {})
+                general_data = results.get("general_data", {})
 
-              # Obtengo los bs y vehiculos 
-              total_payments_bs = general_data.get("total_payments_bs", 0)
-              vehicles = general_data.get("vehicles", 0)
-              
-              #Datos de los porcentajes extraidos de los configs
-              configs = first_data_item.get("config", {})
-              fnt_percentage = configs.get("fnt_percentage", 0)
-              state_percentage = configs.get("gob_percentage", 0)
-              venpax_percentage = configs.get("venpax_percentage", 0)
-              
-              #Fondo nacional del transporte
-              total_fn_bs = total_payments_bs * fnt_percentage / 100
-              
-              #Gobernacion del estado
-              total_state_bs = total_payments_bs * state_percentage / 100
-              
-              #Venpax
-              venpax_bs = total_payments_bs * venpax_percentage / 100
-              
-              finals = [
-                ('Monto Total en Bolívares', 'Total de Vehículos'),
-                (
-                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
-                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"
-                ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.state_name} ({state_percentage}%)', f'Venpax {self.state_name} ({venpax_percentage}%)'),
-                (
-                    f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
-                    f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
-                    f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"
-                ),
-              ]
-            
+                total_payments_bs = general_data.get("total_payments_bs", 0)
+                vehicles = general_data.get("vehicles", 0)
+
+                # Datos de los porcentajes extraídos de los configs
+                configs = first_data_item.get("config", {})
+                fnt_percentage = configs.get("fnt_percentage", 0)
+                state_percentage = configs.get("gob_percentage", 0)
+                venpax_percentage = configs.get("venpax_percentage", 0)
+
+                # Cálculos de los totales
+                total_fn_bs = total_payments_bs * fnt_percentage / 100
+                total_state_bs = total_payments_bs * state_percentage / 100
+                venpax_bs = total_payments_bs * venpax_percentage / 100
+
+                # Datos a agregar en el CSV
+                rows = [
+                    ['Monto Total en Bolívares', 'Total de Vehículos'],
+                    [
+                        f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
+                        f"{locale.format_string('%.0f', vehicles, grouping=True)}"
+                    ],
+                    [
+                        f'Fondo Nacional del T. ({fnt_percentage}%)',
+                        f'Gob. Estado {self.state_name} ({state_percentage}%)',
+                        f'Venpax {self.state_name} ({venpax_percentage}%)'
+                    ],
+                    [
+                        f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
+                        f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
+                        f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"
+                    ],
+                ]
             else:
-              
-              # Extraer totales por estado en Bs y USD
-              total_state = json_data.get("total_por_estado", {})
-              
+                # Extraer totales por estado en Bs y USD
+                total_state = json_data.get("total_por_estado", {})
 
-              # Extraer datos generales
-              general_data = json_data["data"][0]["data"]["results"]["general_data"]
-              total_payments_bs = general_data.get("total_payments_bs", 0)
-              vehicles = general_data.get("vehicles", 0)
+                # Extraer datos generales
+                general_data = json_data["data"][0]["data"]["results"]["general_data"]
+                total_payments_bs = general_data.get("total_payments_bs", 0)
+                vehicles = general_data.get("vehicles", 0)
 
-              # Renderizar tabla de resultados dinámicamente
-              finals = [
-                  ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
-                  (
-                      f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
-                  )
-              ]
+                # Renderizar tabla de resultados
+                rows = [
+                    ['Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'],
+                    [
+                        f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}"
+                    ]
+                ]
 
         except (KeyError, IndexError) as e:
-            print(f"Error al procesar los datos del backend: {str(e)}")
-            return
+            return f"Error al procesar los datos del backend: {str(e)}", 400
 
-        # Formatear los datos y añadirlos al PDF
-        for j, row in enumerate(finals):
-            for datum in row:
-                if j == 0 or j == 2:
-                    self.set_font('Arial', 'B', 10)
-                    self.set_fill_color(255, 194, 0)
-                    self.set_text_color(40, 40, 40)
-                elif j == 1 or j == 3:
-                    self.set_font('Arial', 'B', 12)
-                    self.set_fill_color(255, 255, 255)
-                    self.set_text_color(40, 40, 40)
-                elif j == 4 or 6:
-                    self.set_font('Arial', 'B', 12)
-                    self.set_fill_color(255, 255, 255)
-                    self.set_text_color(40, 40, 40)
+        # Crear archivo CSV en memoria utilizando StringIO
+        output = StringIO()
+        writer = csv.writer(output)
 
-                # Set the cell size and add the data to the report
-                # The cell size is calculated based on the number of columns in the row
-                self.cell((self.w - 20) / len(row), 11, datum, 0, 0, 'C', fill=True)
-            self.ln(11)
+        # Escribir los datos en el archivo CSV
+        for row in rows:
+            writer.writerow(row)
 
-        # Resetear el formato de texto al predeterminado
-        self.set_font('Arial', '', 12)
+        # Hacer que el puntero vuelva al inicio para enviar el archivo
+        output.seek(0)
+
+        # Enviar el archivo CSV al usuario
+        return send_file(output, as_attachment=True, download_name="reporte_estado.csv", mimetype="text/csv")
 
     def general_info_institutional_by_toll(self,report_data):
         """
@@ -1899,18 +1840,21 @@ class Report_Generator(FPDF):
                 locale.format_string('%.2f', total_ves_cash, grouping=True),
             ])
 
-            # Generar CSV en memoria
-            output = io.StringIO()
-            writer = csv.writer(output)
-            
-            # Título para la primera tabla
-            writer.writerow(["Reporte de Tarifas Generales de Vehículos"])
-            writer.writerow([])  # Línea en blanco entre el título y la tabla
-            writer.writerows(csv_data)
-            output.write("\n")  # Añadir espacio antes de la siguiente tabla
+            print(csv_data)
 
+            # Generar CSV en memoria usando BytesIO
+            output = io.BytesIO()
+            writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
+            # Escribir los datos al archivo CSV en memoria
+            for row in csv_data:
+                writer.writerow(row)
+
+            
+
+            # Asegurarse de mover el puntero del archivo al principio
             output.seek(0)
-            return output.getvalue()
+            return output  # Regresar el archivo en formato BytesIO
 
         except (KeyError, IndexError, ValueError) as e:
             raise ValueError(f"Error al procesar los datos: {str(e)}")
@@ -2144,76 +2088,80 @@ class General_PDF_Report_Institutional_By_State(Resource):
         report_name = payload.get('report_name', 'general_report').replace(' ', '_')
         supervisor_name = payload.get('username')
 
+        try:
 
 
-        if not start_date or not end_date:
-            return {"message": "Los campos 'start_date', 'end_date' y 'username' son obligatorios."}, 400
 
-        #Genero el reporte 
-        pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
-        general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
+            if not start_date or not end_date:
+                return {"message": "Los campos 'start_date', 'end_date' y 'username' son obligatorios."}, 400
 
-        if state and not toll:
-            start_date = datetime.fromisoformat(start_date)
-            end_date= datetime.fromisoformat(end_date)
-            difference_days = end_date - start_date
-            # Obtener los datos del backend
-            report_data = pdf.fetch_data_from_backend()
-             # Verificar si report_data es None o no es un diccionario
-            if not report_data:
-                return {"message": "Error al obtener los datos del backend."}, 500
-            if not isinstance(report_data, dict):
-                return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+            #Genero el reporte 
+            pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
+            general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
 
-            if difference_days > timedelta(days=3):
-                pdf.add_page()
-                pdf.general_info_institutional_by_state(report_data)
-                pdf.linechart_payments_and_amount_by_date(report_data)
-                pdf.general_rates_by_vehicle_by_state(report_data)
-                pdf.add_page()
-                pdf.general_rates_by_vehicle_2(report_data)
+            if state and not toll:
+                start_date = datetime.fromisoformat(start_date)
+                end_date= datetime.fromisoformat(end_date)
+                difference_days = end_date - start_date
+                # Obtener los datos del backend
+                report_data = pdf.fetch_data_from_backend()
+                # Verificar si report_data es None o no es un diccionario
+                if not report_data:
+                    return {"message": "Error al obtener los datos del backend."}, 500
+                if not isinstance(report_data, dict):
+                    return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+
+                if difference_days > timedelta(days=3):
+                    pdf.add_page()
+                    pdf.general_info_institutional_by_state(report_data)
+                    pdf.linechart_payments_and_amount_by_date(report_data)
+                    pdf.general_rates_by_vehicle_by_state(report_data)
+                    pdf.add_page()
+                    pdf.general_rates_by_vehicle_2(report_data)
+                else:
+                    pdf.add_page()
+                    pdf.general_info_institutional_by_state(report_data)
+                    pdf.general_rates_by_vehicle_by_state(report_data)
+                    pdf.add_page()
+                    pdf.general_rates_by_vehicle_2(report_data)
+
             else:
-                pdf.add_page()
-                pdf.general_info_institutional_by_state(report_data)
-                pdf.general_rates_by_vehicle_by_state(report_data)
-                pdf.add_page()
-                pdf.general_rates_by_vehicle_2(report_data)
+                start_date = datetime.fromisoformat(start_date)
+                end_date= datetime.fromisoformat(end_date)
+                difference_days = end_date - start_date
 
-        else:
-            start_date = datetime.fromisoformat(start_date)
-            end_date= datetime.fromisoformat(end_date)
-            difference_days = end_date - start_date
+                report_data = pdf.fetch_data_by_toll_from_backend()
+                # Verificar si report_data es None o no es un diccionario
+                if not report_data:
+                    return {"message": "Error al obtener los datos del backend."}, 500
+                if not isinstance(report_data, dict):
+                    return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
+                if difference_days > timedelta(days=3):
+                    pdf.add_page()
+                    pdf.general_info_institutional_by_toll(report_data)
+                    pdf.linechart_payments_and_amount_by_date(report_data)
+                    pdf.general_rates_by_vehicle_by_state(report_data)
+                    pdf.add_page()
+                    pdf.general_rates_by_vehicle_2(report_data)
+                else:
+                    pdf.add_page()
+                    pdf.general_info_institutional_by_toll(report_data)
+                    pdf.general_rates_by_vehicle_by_state(report_data)
+                    pdf.add_page()
+                    pdf.general_rates_by_vehicle_2(report_data)
+            # Convertir el PDF a BytesIO
+            pdf_data_str = pdf.output(dest='S').encode('latin1')
+            pdf_data = io.BytesIO(pdf_data_str)
 
-            report_data = pdf.fetch_data_by_toll_from_backend()
-            # Verificar si report_data es None o no es un diccionario
-            if not report_data:
-                return {"message": "Error al obtener los datos del backend."}, 500
-            if not isinstance(report_data, dict):
-                return {"message": "Los datos obtenidos del backend no son válidos, tipo de datos incorrecto."}, 500
-            if difference_days > timedelta(days=3):
-                pdf.add_page()
-                pdf.general_info_institutional_by_toll(report_data)
-                pdf.linechart_payments_and_amount_by_date(report_data)
-                pdf.general_rates_by_vehicle_by_state(report_data)
-                pdf.add_page()
-                pdf.general_rates_by_vehicle_2(report_data)
-            else:
-                pdf.add_page()
-                pdf.general_info_institutional_by_toll(report_data)
-                pdf.general_rates_by_vehicle_by_state(report_data)
-                pdf.add_page()
-                pdf.general_rates_by_vehicle_2(report_data)
-        # Convertir el PDF a BytesIO
-        pdf_data_str = pdf.output(dest='S').encode('latin1')
-        pdf_data = io.BytesIO(pdf_data_str)
-
-        # Enviar el PDF como respuesta
-        return send_file(
-            pdf_data,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
-        )
+            # Enviar el PDF como respuesta
+            return send_file(
+                pdf_data,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=f'{report_name}_{datetime.now().strftime("%Y%m%d%H%M")}.pdf'
+            )
+        except Exception as e:
+            return {"message": f"Error al generar el reporte: {str(e)}"}, 500
 
 
 
@@ -2301,21 +2249,30 @@ class General_PDF_Report_Ministry(Resource):
 class GeneralCSVReport(Resource):
     @ns.expect(generate_report_general_report_consolidated)
     def post(self):
-        payload = request.json
+        payload = api.payload
 
         if not payload:
             return {"message": "El cuerpo de la solicitud está vacío o no es válido."}, 400
 
+        start_date = payload.get('start_date')
+        end_date = payload.get('end_date')
+        general_report_type = payload.get('general_report_type', 'Complete')
+        state = payload.get('state', None)
+        toll = payload.get('toll', None)
+        report_name = payload.get('report_name', 'general_report').replace(' ', '_')
+        supervisor_name = payload.get('username')
+        print("Paso por aqui")
+
         try:
             # Crear instancia del generador de reportes
             pdf = Report_Generator(
-                start_date=payload['start_date'],
-                end_date=payload['end_date'],
-                supervisor_info=None,
-                general_report_type=None,
-                report_name=payload.get('report_name', 'general_report').replace(' ', '_'),
-                state=payload.get('state', None),
-                toll=payload.get('toll', None)
+                start_date=start_date, 
+                end_date=end_date, 
+                supervisor_info=supervisor_name,
+                general_report_type=general_report_type, 
+                report_name=report_name, 
+                state=state, 
+                toll=toll
             )
 
             # Obtener los datos del backend
@@ -2324,21 +2281,32 @@ class GeneralCSVReport(Resource):
             if not report_data:
                 return {"message": "Error al obtener los datos del backend."}, 500
 
-            # Generar las dos secciones del CSV
-            general_info_csv = pdf.general_info_csv(report_data)
-            rates_by_state_csv = pdf.general_rates_by_vehicle_state_csv(report_data)
+            if report_name is None:
+                report_name = "general_info_csv_report"
 
-            # Combinar los dos reportes en un solo archivo CSV
-            combined_csv_content = general_info_csv + "\n\n" + rates_by_state_csv
+            print("Paso por aqui")
+            # Obtener el archivo CSV generado
+            csv_output = pdf.general_info_csv(report_data)
 
-            # Configurar la respuesta HTTP para descargar el CSV
-            response = Response(combined_csv_content, mimetype='text/csv')
-            response.headers['Content-Disposition'] = 'attachment; filename=combined_rates_report.csv'
-            return response
-        
+            # Asegurarse de que csv_output sea un archivo adecuado para send_file
+            if isinstance(csv_output, StringIO):
+                csv_output.seek(0)  # Asegurarse de que el puntero esté al principio del archivo
+            # Verificar que csv_output tiene contenido
+            print(csv_output.getvalue())  # Esto imprimirá el contenido del CSV
+
+            # Enviar el archivo como respuesta para descarga
+            return send_file(
+                csv_output,
+                mimetype="text/csv",
+                as_attachment=True,
+                download_name=f"{report_name}_{datetime.now().strftime('%Y%m%d%H%M')}.csv"
+            )
 
         except Exception as e:
-            return {"message": f"Ocurrió un error al procesar la solicitud: {str(e)}"}, 500
+            return {"message": f"Error al generar el reporte: {str(e)}"}, 500
+        
+
+        
 
 
 # Inicializar la aplicación Flask
