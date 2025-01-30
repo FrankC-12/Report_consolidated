@@ -46,14 +46,14 @@ generate_report_general_report_institutional_by_state = api.model('Institutional
     'toll': fields.String(required=False, description='El peaje a filtrar en el reporte')
 })
 
-generate_report_general_report_institutional = api.model('InstitutionalReportPayload', {
+generate_report_institutional = api.model('InstitutionalReportPayload', {
     'start_date': fields.String(required=True, description='La fecha de inicio del reporte (formato ISO8601)'),
     'end_date': fields.String(required=True, description='La fecha de fin del reporte (formato ISO8601)'),
     'state': fields.String(required=True, description='El estado a filtrar en el reporte'),
     'toll': fields.String(required=True, description='El peaje a filtrar en el reporte')
 })
 
-generate_report_general_report_ministry = api.model('MinistryReportPayload', {
+generate_report_ministry = api.model('MinistryReportPayload', {
     'start_date': fields.String(required=True, description='La fecha de inicio del reporte (formato ISO8601)'),
     'end_date': fields.String(required=True, description='La fecha de fin del reporte (formato ISO8601)'),
     'state': fields.String(required=False, description='El estado a filtrar en el reporte'),
@@ -356,6 +356,8 @@ class Report_Generator(FPDF):
 
             # Procesar las filas de datos
             for date, details in general_data.items():
+                print("Entro")
+                print(details.get("pagos"))
                 if details.get("pagos", True):
                     pagos_daily = details.get("pagos", 0)
                     amount_daily = details.get("monto", 0)
@@ -368,17 +370,20 @@ class Report_Generator(FPDF):
                 fechas.append(dt.datetime.strptime(date,'%Y-%m-%d').date())
                 pagos.append(pagos_daily)
                 amount.append(amount_daily)
-            
+            print("Paso 1")
             # Formatter for y-axis labels
             formatter = FuncFormatter(self.format_dot_comma)
+            print("Paso 2")
 
             # Create a DataFrame from the processed data
             df = pd.DataFrame({'Fecha': fechas, 'Pagos': pagos, 'Monto': amount})
             df['Fecha'] = pd.to_datetime(df['Fecha'], format='%d-%m-%Y')
+            print("Paso 3")
 
             # Calcular la diferencia en días entre la primera y última fecha
             dias_totales = (df['Fecha'].max() - df['Fecha'].min()).days
             
+            print("Paso 4")
             if dias_totales > 3:
                 
                 # Definir los límites para los bindings
@@ -505,7 +510,9 @@ class Report_Generator(FPDF):
                 fig.savefig(bio, format="png", bbox_inches='tight')
                 img_encoded = base64.b64encode(bio.getvalue()).decode()
 
-                
+                # Save the image to a temporary file
+                with open("temp_img_line_collected.png", "wb") as f:
+                    f.write(base64.b64decode(img_encoded))
 
                 # Add the image to the report
                 self.ln(5)
@@ -1490,38 +1497,178 @@ class Report_Generator(FPDF):
             # Inicializar variables para los totales
             total_num_transactions = 0
             total_ves_amount = 0
+
+            # Orden específico de los métodos de pago
+
             
             # Lista para almacenar los datos de la tabla
             table_data = [["Método de Pago", "N° Transacciones", "% Transacciones", "Monto Bs", "% Monto"]]
 
-            # Generar filas para cada método de pago en el orden definido
-            
-            for key, payment_methods in general_data.items():
-              for inner_key, data in payment_methods.items():
-                  if isinstance(data, dict):
-                    if data.get("amount",0) != 0:
-                        num_transactions = data.get("num_transactions",0)
-                        total = data.get("amount_pivoted",0)
-                        payment_name = data.get("name", "") 
-                        percentage_transactions = (
-                        (num_transactions / total_num_transactions) * 100 if total_num_transactions else 0)
-                        percentage_amount_collected = ((total / total_ves_amount) * 100 if total_ves_amount else 0)
+            # Calcular totales generales
+            for group_key, group in general_data.items():
+                if isinstance(group, dict):
+                    for payment_key, data in group.items():
+                        if isinstance(data, dict):
+                            total_num_transactions += data.get("num_transactions", 0)
+                            total_ves_amount += data.get("amount_pivoted", 0)
 
-                        # Agregar fila a la tabla
-                        table_data.append(
-                            [
-                                payment_name,
-                                locale.format_string('%.0f', num_transactions, grouping=True),
-                                f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
-                                locale.format_string('%.2f', total, grouping=True),
-                                f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
-                            ]
-                        )
+
+            for key, inner_objects in general_data.items():
+                if key == "3":
+                    for inner_key, data in inner_objects.items():
+                        if isinstance(data, dict):
+                            num_transactions = data.get("num_transactions",0)
+                            total = data.get("amount_pivoted",0)
+                            payment_name = data.get("name", "") 
+                            percentage_transactions = data.get("percentage_transactions",0)
+                            percentage_amount_collected = data.get("percentage_amount_collected",0)
+
+                            # Agregar fila a la tabla
+                            table_data.append(
+                                [
+                                    payment_name,
+                                    locale.format_string('%.0f', num_transactions, grouping=True),
+                                    f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
+                                    locale.format_string('%.2f', total, grouping=True),
+                                    f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
+                                ]
+                            )
                         
-                        # Totales
-                        total_num_transactions += data.get("num_transactions", 0)
-                        total_ves_amount += data.get("amount_pivoted", 0)
-   
+            # Agregar fila de totales
+            table_data.append([
+                "Totales",
+                locale.format_string('%.0f', total_num_transactions, grouping=True),
+                "",
+                locale.format_string('%.2f', total_ves_amount, grouping=True),
+                "",
+            ])
+
+        except (KeyError, IndexError) as e:
+            print(f"Error al procesar los datos del backend: {str(e)}")
+            return
+
+        # Generar el PDF
+        line_height = self.font_size * 2.5
+        col_width = (self.w - 20) / 5
+
+        self.subtitle_centered(subtitle)
+        self.set_line_width(0)
+
+        for j, row in enumerate(table_data):
+            for i, datum in enumerate(row):
+                # Estilos por fila
+                if j == 0:  # Encabezados
+                    self.set_font('Arial', 'B', 8)
+                    self.set_fill_color(255, 194, 0)
+                    self.set_text_color(40, 40, 40)
+                elif j == len(table_data) - 1:  # Totales
+                    self.set_font('Arial', 'B', 8)
+                    self.set_fill_color(235, 235, 235)
+                    self.set_text_color(40, 40, 40)
+                elif j % 2 == 0:  # Filas pares
+                    self.set_font('Arial', '', 8)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                else:  # Filas impares
+                    self.set_font('Arial', '', 8)
+                    self.set_fill_color(249, 249, 249)
+                    self.set_text_color(40, 40, 40)
+
+                self.cell(col_width, line_height, datum, border=0, align='C', fill=True)
+            self.ln(line_height)
+
+    def general_rates_by_payment_types_only_bs(self, report_data):
+        """
+        Generates a detailed report of payment methods and their respective rates.
+        """
+        # Título del reporte
+        subtitle = "Resumen de Métodos de Pago General"
+
+        # Obtener datos por parámetros
+        json_data = report_data
+        
+        if not json_data:
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
+
+        try:
+            # Verificar si la estructura de los datos es válida
+            data = json_data.get("data", [])
+            if not data:
+                print("No se encontraron datos en la respuesta del backend.")
+                return
+
+            first_data_item = data[0]  # Obtener el primer elemento de la lista de datos
+            results = first_data_item.get("data", {}).get("results", {})
+            general_data = results.get("metodos_pago", {})
+
+            if not general_data:
+                print("No se pudieron obtener los datos de métodos de pago. No se generará el reporte.")
+                return
+
+            # Inicializar variables para los totales
+            total_num_transactions = 0
+            total_ves_amount = 0
+
+            # Orden específico de los métodos de pago
+
+            
+            # Lista para almacenar los datos de la tabla
+            table_data = [["Método de Pago", "N° Transacciones", "% Transacciones", "Monto Bs", "% Monto"]]
+
+
+
+            # Calcular totales generales
+            for group_key, group in general_data.items():
+                if isinstance(group, dict):
+                    for payment_key, data in group.items():
+                        if isinstance(data, dict):
+                            total_num_transactions += data.get("num_transactions", 0)
+                            total_ves_amount += data.get("amount_pivoted", 0)
+
+
+            total_bs = 0
+            total_transactions = 0
+            total_amount_transactions = 0
+            total_amount_collected = 0
+            for key, inner_objects in general_data.items():
+                for payment_key, data in inner_objects.items():
+                    if isinstance(data, dict):
+                        if data.get("name") == "Efectivo Dólares" or data.get("name") == "Efectivo Pesos":
+                            print(data.get("name"))
+                            total_bs += data.get("amount_pivoted", 0)
+                            total_transactions += data.get("num_transactions", 0)
+                            total_amount_transactions += data.get("percentage_transactions", 0)
+                            total_amount_collected += data.get("percentage_amount_collected", 0)
+
+            for key, inner_objects in general_data.items():
+                if key == "3":
+                    for inner_key, data in inner_objects.items():
+                        if isinstance(data, dict):
+                            if data.get("name") == "Efectivo Bolívares":
+                                num_transactions = data.get("num_transactions",0) + total_transactions
+                                total = data.get("amount_pivoted",0) + total_bs
+                                payment_name = data.get("name", "")
+                                percentage_transactions = data.get("percentage_transactions",0) + total_amount_transactions
+                                percentage_amount_collected = data.get("percentage_amount_collected",0) + total_amount_collected
+                            else:
+                                num_transactions = data.get("num_transactions",0)
+                                total = data.get("amount_pivoted",0)
+                                payment_name = data.get("name", "") 
+                                percentage_transactions = data.get("percentage_transactions",0)
+                                percentage_amount_collected = data.get("percentage_amount_collected",0)
+
+                            # Agregar fila a la tabla
+                            table_data.append(
+                                [
+                                    payment_name,
+                                    locale.format_string('%.0f', num_transactions, grouping=True),
+                                    f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
+                                    locale.format_string('%.2f', total, grouping=True),
+                                    f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
+                                ]
+                            )
+                        
             # Agregar fila de totales
             table_data.append([
                 "Totales",
@@ -1610,7 +1757,6 @@ class Report_Generator(FPDF):
                             total_amounts.append(z["amount_pivoted"])
                             transactions.append(z["num_transactions"])
                             percentage_transactions.append(z["percentage_transactions"])
-            print(len(methods))
             #Aqui itero para las monedas y sus stats
             for x, y in general_data.items():
                 name.append(y["currency_name"])
@@ -1866,85 +2012,107 @@ class Report_Generator(FPDF):
         self.cell(w, 20, subtitle, 0, 1, 'C', 0)
 
     def general_info_institutional_by_state(self,report_data):
-        # Simulación de los datos que llegarían de tu función original
-        json_data = report_data  # Asegúrate de que report_data esté correctamente definido
+        """
+        Genera y formatea la sección de información general del reporte por estado.
+        """
+        # Obtenemos los datos por parámetro
+        json_data = report_data
 
+        # Verificamos si la respuesta es válida
         if not json_data:
-            return "No se pudo obtener los datos del backend.", 400
+            print("No se pudo obtener los datos del backend. No se generará el PDF.")
+            return
 
+        
         # Procesar los datos obtenidos
         try:
+            # Obtenemos la lista 'data', y si no está vacía, tomamos el primer item
+
             if self.state_name:
-                # Extraemos los datos relevantes, con valores por defecto en caso de que falten
-                first_data_item = json_data.get("data", [])[0]
-                results = first_data_item.get("data", {}).get("results", {})
-                general_data = results.get("general_data", {})
+              
+              # Extraemos los datos relevantes, con valores por defecto en caso de que falten
+              first_data_item = json_data.get("data", [])[0]
+              results = first_data_item.get("data", {}).get("results", {})
+              general_data = results.get("general_data", {})
 
-                total_payments_bs = general_data.get("total_payments_bs", 0)
-                vehicles = general_data.get("vehicles", 0)
-
-                # Datos de los porcentajes extraídos de los configs
-                configs = first_data_item.get("config", {})
-                fnt_percentage = configs.get("fnt_percentage", 0)
-                state_percentage = configs.get("gob_percentage", 0)
-                venpax_percentage = configs.get("venpax_percentage", 0)
-
-                # Cálculos de los totales
-                total_fn_bs = total_payments_bs * fnt_percentage / 100
-                total_state_bs = total_payments_bs * state_percentage / 100
-                venpax_bs = total_payments_bs * venpax_percentage / 100
-
-                # Datos a agregar en el CSV
-                rows = [
-                    ['Monto Total en Bolívares', 'Total de Vehículos'],
-                    [
-                        f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
-                        f"{locale.format_string('%.0f', vehicles, grouping=True)}"
-                    ],
-                    [
-                        f'Fondo Nacional del T. ({fnt_percentage}%)',
-                        f'Gob. Estado {self.state_name} ({state_percentage}%)',
-                        f'Venpax {self.state_name} ({venpax_percentage}%)'
-                    ],
-                    [
-                        f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
-                        f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
-                        f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"
-                    ],
-                ]
+              # Obtengo los bs y vehiculos 
+              total_payments_bs = general_data.get("total_payments_bs", 0)
+              vehicles = general_data.get("vehicles", 0)
+              
+              #Datos de los porcentajes extraidos de los configs
+              configs = first_data_item.get("config", {})
+              fnt_percentage = configs.get("fnt_percentage", 0)
+              state_percentage = configs.get("gob_percentage", 0)
+              venpax_percentage = configs.get("venpax_percentage", 0)
+              
+              #Fondo nacional del transporte
+              total_fn_bs = total_payments_bs * fnt_percentage / 100
+              
+              #Gobernacion del estado
+              total_state_bs = total_payments_bs * state_percentage / 100
+              
+              #Venpax
+              venpax_bs = total_payments_bs * venpax_percentage / 100
+              
+              finals = [
+                ('Monto Total en Bolívares', 'Total de Vehículos'),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",
+                    f"{locale.format_string('%.0f', vehicles, grouping=True)}"
+                ), (f'Fondo Nacional del T. ({fnt_percentage}%)', f'Gob. Estado {self.state_name} ({state_percentage}%)', f'Venpax {self.state_name} ({venpax_percentage}%)'),
+                (
+                    f"Bs. {locale.format_string('%.2f', total_fn_bs, grouping=True)}",
+                    f"Bs. {locale.format_string('%.2f', total_state_bs, grouping=True)}",
+                    f"Bs.{locale.format_string('%.0f', venpax_bs, grouping=True)}"
+                ),
+              ]
+            
             else:
-                # Extraer totales por estado en Bs y USD
-                total_state = json_data.get("total_por_estado", {})
+              
+              # Extraer totales por estado en Bs y USD
+              total_state = json_data.get("total_por_estado", {})
+              
 
-                # Extraer datos generales
-                general_data = json_data["data"][0]["data"]["results"]["general_data"]
-                total_payments_bs = general_data.get("total_payments_bs", 0)
-                vehicles = general_data.get("vehicles", 0)
+              # Extraer datos generales
+              general_data = json_data["data"][0]["data"]["results"]["general_data"]
+              total_payments_bs = general_data.get("total_payments_bs", 0)
+              vehicles = general_data.get("vehicles", 0)
 
-                # Renderizar tabla de resultados
-                rows = [
-                    ['Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'],
-                    [
-                        f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}"
-                    ]
-                ]
+              # Renderizar tabla de resultados dinámicamente
+              finals = [
+                  ('Monto Total en Bolívares', 'Monto Total en Dólares', 'Total de Vehículos'),
+                  (
+                      f"Bs. {locale.format_string('%.2f', total_payments_bs, grouping=True)}",  # Separador de miles y 2 decimales
+                  )
+              ]
 
         except (KeyError, IndexError) as e:
-            return f"Error al procesar los datos del backend: {str(e)}", 400
+            print(f"Error al procesar los datos del backend: {str(e)}")
+            return
 
-        # Crear archivo CSV en memoria utilizando StringIO
-        output = StringIO()
-        writer = csv.writer(output)
+        # Formatear los datos y añadirlos al PDF
+        for j, row in enumerate(finals):
+            for datum in row:
+                if j == 0 or j == 2:
+                    self.set_font('Arial', 'B', 10)
+                    self.set_fill_color(255, 194, 0)
+                    self.set_text_color(40, 40, 40)
+                elif j == 1 or j == 3:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
+                elif j == 4 or 6:
+                    self.set_font('Arial', 'B', 12)
+                    self.set_fill_color(255, 255, 255)
+                    self.set_text_color(40, 40, 40)
 
-        # Escribir los datos en el archivo CSV
-        for row in rows:
-            writer.writerow(row)
+                # Set the cell size and add the data to the report
+                # The cell size is calculated based on the number of columns in the row
+                self.cell((self.w - 20) / len(row), 11, datum, 0, 0, 'C', fill=True)
+            self.ln(11)
 
-        # Hacer que el puntero vuelva al inicio para enviar el archivo
-        output.seek(0)
-
-        # Enviar el archivo CSV al usuario
-        return send_file(output, as_attachment=True, download_name="reporte_estado.csv", mimetype="text/csv")
+        # Resetear el formato de texto al predeterminado
+        self.set_font('Arial', '', 12)
 
     def general_info_institutional_by_toll(self,report_data):
         """
@@ -2228,15 +2396,15 @@ class GeneralPDFReportConsolidate(Resource):
 
                 if difference_days > timedelta(days=3):
                     # Llamar a las funciones que generan las secciones del reporte
-                    pdf.general_info(report_data)
-                    pdf.linechart_payments_and_amount_by_date(report_data)
-                    pdf.add_page()
-                    pdf.general_rates_by_vehicle_2(report_data)
-                    pdf.add_page()
-                    pdf.general_rates_by_payments_types_2(report_data)
-                    pdf.general_rates_by_date(report_data)
-                    pdf.general_rates_by_vehicle(report_data)
-                    pdf.general_rates_by_payment_types(report_data)
+                    # pdf.general_info(report_data)
+                    # pdf.linechart_payments_and_amount_by_date(report_data)
+                    # pdf.add_page()
+                    # pdf.general_rates_by_vehicle_2(report_data)
+                    # pdf.add_page()
+                    # pdf.general_rates_by_payments_types_2(report_data)
+                    # pdf.general_rates_by_date(report_data)
+                    # pdf.general_rates_by_vehicle(report_data)
+                    
 
                     # Convertir el PDF a BytesIO
                     pdf_data_str = pdf.output(dest='S').encode('latin1')
@@ -2291,7 +2459,7 @@ class GeneralPDFReportConsolidate(Resource):
                 pdf.general_info(report_data)
                 pdf.general_rates_by_date(report_data)
                 pdf.general_rates_by_vehicle(report_data)
-                pdf.general_rates_by_payment_types(report_data)
+                pdf.general_rates_by_payment_types_2(report_data)
 
                 # Convertir el PDF a BytesIO
                 pdf_data_str = pdf.output(dest='S').encode('latin1')
@@ -2310,11 +2478,11 @@ class GeneralPDFReportConsolidate(Resource):
         except Exception as e:
             return {"message": f"Error interno al generar el reporte: {str(e)}"}, 500
    
-@ns.route('/General-PDF-Report-Institutional-by-state')
+@ns.route('/General-PDF-Report-Ministry')
 class General_PDF_Report_Institutional_By_State(Resource):
-    @ns.expect(generate_report_general_report_institutional_by_state)
+    @ns.expect(generate_report_ministry)
     def post(self):
-        """ Generar el reporte para el usuario Institucional """
+        """ Generar el reporte para el usuario Ministerio """
         payload = api.payload
 
         # Verificar si payload es None
@@ -2331,8 +2499,6 @@ class General_PDF_Report_Institutional_By_State(Resource):
         supervisor_name = payload.get('username')
 
         try:
-
-
 
             if not start_date or not end_date:
                 return {"message": "Los campos 'start_date', 'end_date' y 'username' son obligatorios."}, 400
@@ -2357,13 +2523,13 @@ class General_PDF_Report_Institutional_By_State(Resource):
                     pdf.add_page()
                     pdf.general_info_institutional_by_state(report_data)
                     pdf.linechart_payments_and_amount_by_date(report_data)
-                    pdf.general_rates_by_vehicle_by_state(report_data)
+                    pdf.general_rates_by_payment_types_only_bs(report_data)
                     pdf.add_page()
                     pdf.general_rates_by_vehicle_2(report_data)
                 else:
                     pdf.add_page()
                     pdf.general_info_institutional_by_state(report_data)
-                    pdf.general_rates_by_vehicle_by_state(report_data)
+                    pdf.general_rates_by_payment_types_only_bs(report_data)
                     pdf.add_page()
                     pdf.general_rates_by_vehicle_2(report_data)
 
@@ -2382,13 +2548,13 @@ class General_PDF_Report_Institutional_By_State(Resource):
                     pdf.add_page()
                     pdf.general_info_institutional_by_toll(report_data)
                     pdf.linechart_payments_and_amount_by_date(report_data)
-                    pdf.general_rates_by_vehicle_by_state(report_data)
+                    pdf.general_rates_by_payment_types_only_bs(report_data)
                     pdf.add_page()
                     pdf.general_rates_by_vehicle_2(report_data)
                 else:
                     pdf.add_page()
                     pdf.general_info_institutional_by_toll(report_data)
-                    pdf.general_rates_by_vehicle_by_state(report_data)
+                    pdf.general_rates_by_payment_types_only_bs(report_data)
                     pdf.add_page()
                     pdf.general_rates_by_vehicle_2(report_data)
             # Convertir el PDF a BytesIO
@@ -2405,11 +2571,11 @@ class General_PDF_Report_Institutional_By_State(Resource):
         except Exception as e:
             return {"message": f"Error al generar el reporte: {str(e)}"}, 500
 
-@ns.route('/General-PDF-Report-ministry')
-class General_PDF_Report_Ministry(Resource):
-    @ns.expect(generate_report_general_report_ministry)
+@ns.route('/General-PDF-Report-Institutional')
+class General_PDF_Report_Institutional(Resource):
+    @ns.expect(generate_report_institutional)
     def post(self):
-        """ Generar el reporte por peaje para usuario de ministerio """
+        """ Generar el reporte por peaje para usuario Institutional """
         # Verificar si payload es None
         payload = api.payload         
                 
@@ -2430,7 +2596,6 @@ class General_PDF_Report_Ministry(Resource):
         pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=None,
             general_report_type=None, report_name=report_name, state=state,toll=toll)
         
-        print(state)
         
         pdf.add_page()
         
@@ -2453,6 +2618,7 @@ class General_PDF_Report_Ministry(Resource):
             pdf.general_info(report_data)
             pdf.linechart_payments_and_amount_by_date(report_data)
             pdf.add_page()
+            pdf.general_rates_by_payment_types_only_bs(report_data)
             pdf.general_rates_by_vehicle_2(report_data)
             
             # Convertir el PDF a BytesIO
@@ -2472,7 +2638,9 @@ class General_PDF_Report_Ministry(Resource):
             # Llamar a las funciones que generan las secciones del reporte
             pdf.general_info(report_data)
             pdf.add_page()
+            pdf.general_rates_by_payment_types_only_bs(report_data)
             pdf.general_rates_by_vehicle_2(report_data)
+
             
             # Convertir el PDF a BytesIO
             pdf_data_str = pdf.output(dest='S').encode('latin1')
