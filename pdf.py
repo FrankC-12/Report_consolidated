@@ -2202,75 +2202,32 @@ class Report_Generator(FPDF):
 
     def general_info_csv(self, report_data):
         """
-        Procesa los datos y genera un archivo CSV con una tabla que muestra tarifas generales de vehículos.
+        Genera un archivo CSV con la información general.
         """
-        try:
-            # Extraer datos del JSON
-            first_data_item = report_data.get("data", [])[0]
-            results = first_data_item.get("data", {}).get("results", {})
-            general_data = results.get("tarifas", {})
+        string_output = StringIO()  # Buffer de texto
+        writer = csv.writer(string_output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-            if not general_data:
-                raise ValueError("No se encontraron datos de tarifas.")
+        # Encabezados del CSV
+        writer.writerow(["Monto Total en Bs", "Monto Total en USD", "Total de Vehículos"])
 
-            # Inicializar totales
-            total_amount = total_ves_amount = total_pagos = total_ves_cash = 0
-            csv_data = [["Tipo de Vehículo", "Cantidad", "% Cantidad", "Monto Bs", "% Monto", "Efvo. Bs"]]
+        # Extraer los datos
+        first_data_item = report_data.get("data", [])[0]
+        results = first_data_item.get("data", {}).get("results", {})
+        general_data = results.get("general_data", {})
 
-            # Calcular totales
-            for data in general_data.values():
-                total_amount += data["cantidad"]
-                total_ves_amount += data["monto"]
-                total_pagos += data["cantidad"]
-                total_ves_cash += data["cash_collected"]["VES"]
+        total_payments_bs = general_data.get("total_payments_bs", 0)
+        total_payments_usd = general_data.get("total_payments_usd", 0)
+        vehicles = general_data.get("vehicles", 0)
 
-            # Añadir datos al CSV
-            for data in general_data.values():
-                amount = data["cantidad"]
-                total = data["monto"]
-                ves_cash = data["cash_collected"]["VES"]
+        # Escribir los datos en el CSV
+        writer.writerow([total_payments_bs, total_payments_usd, vehicles])
 
-                # Calcular porcentajes
-                percentage_amount = (amount / total_amount) * 100 if total_amount else 0
-                percentage_ves_cash = (total / total_ves_amount) * 100 if total_ves_amount else 0
+        # Convertir `StringIO` en `BytesIO` para enviar como archivo binario
+        output = BytesIO()
+        output.write(string_output.getvalue().encode('utf-8'))  # Convertir a bytes
+        output.seek(0)  # Mover el puntero al inicio
 
-                csv_data.append([
-                    data["nombre"],
-                    locale.format_string('%.0f', amount, grouping=True),
-                    f"{locale.format_string('%.2f', percentage_amount, grouping=True)}%",
-                    locale.format_string('%.2f', total, grouping=True),
-                    f"{locale.format_string('%.2f', percentage_ves_cash, grouping=True)}%",
-                    locale.format_string('%.2f', ves_cash, grouping=True),
-                ])
-
-            # Fila de totales
-            csv_data.append([
-                "Totales",
-                locale.format_string('%.0f', total_pagos, grouping=True),
-                "",
-                locale.format_string('%.2f', total_ves_amount, grouping=True),
-                "",
-                locale.format_string('%.2f', total_ves_cash, grouping=True),
-            ])
-
-            print(csv_data)
-
-            # Generar CSV en memoria usando BytesIO
-            output = io.BytesIO()
-            writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-
-            # Escribir los datos al archivo CSV en memoria
-            for row in csv_data:
-                writer.writerow(row)
-
-            
-
-            # Asegurarse de mover el puntero del archivo al principio
-            output.seek(0)
-            return output  # Regresar el archivo en formato BytesIO
-
-        except (KeyError, IndexError, ValueError) as e:
-            raise ValueError(f"Error al procesar los datos: {str(e)}")
+        return output
         
     def general_rates_by_vehicle_state_csv(self, report_data):
         """
@@ -2659,7 +2616,6 @@ class General_PDF_Report_Institutional(Resource):
             ) 
 
       
-#Endpoint para generar el CSV
 @ns.route('/General-CSV-Report')
 class GeneralCSVReport(Resource):
     @ns.expect(generate_report_general_report_consolidated)
@@ -2676,11 +2632,10 @@ class GeneralCSVReport(Resource):
         toll = payload.get('toll', None)
         report_name = payload.get('report_name', 'general_report').replace(' ', '_')
         supervisor_name = payload.get('username')
-        print("Paso por aqui")
 
         try:
             # Crear instancia del generador de reportes
-            pdf = Report_Generator(
+            report_generator = Report_Generator(
                 start_date=start_date, 
                 end_date=end_date, 
                 supervisor_info=supervisor_name,
@@ -2691,23 +2646,15 @@ class GeneralCSVReport(Resource):
             )
 
             # Obtener los datos del backend
-            report_data = pdf.fetch_data_from_backend()
-
+            report_data = report_generator.fetch_data_from_backend()
             if not report_data:
                 return {"message": "Error al obtener los datos del backend."}, 500
 
-            if report_name is None:
-                report_name = "general_info_csv_report"
+            
+            csv_output = report_generator.general_info_csv(report_data)
 
-            print("Paso por aqui")
-            # Obtener el archivo CSV generado
-            csv_output = pdf.general_info_csv(report_data)
-
-            # Asegurarse de que csv_output sea un archivo adecuado para send_file
-            if isinstance(csv_output, StringIO):
-                csv_output.seek(0)  # Asegurarse de que el puntero esté al principio del archivo
-            # Verificar que csv_output tiene contenido
-            print(csv_output.getvalue())  # Esto imprimirá el contenido del CSV
+            # Asegurarse de que el puntero esté al principio del archivo
+            csv_output.seek(0)
 
             # Enviar el archivo como respuesta para descarga
             return send_file(
@@ -2719,6 +2666,7 @@ class GeneralCSVReport(Resource):
 
         except Exception as e:
             return {"message": f"Error al generar el reporte: {str(e)}"}, 500
+
         
 
         
