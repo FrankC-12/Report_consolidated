@@ -282,9 +282,12 @@ class Report_Generator(FPDF):
             self.cell(203 - self.get_string_width(f'Peaje: Todos'),5, 'Peaje:  ',align='R')
             self.set_font('Arial', '', 8.5)
             self.cell(0, 5, ' Todos', 0, 1, align='R')
-            
-
-        self.line(10, 48, 200, 48)
+        if self.general_report_type != None:
+            self.set_font('Arial', 'B', 8.5)
+            self.cell(213 - self.get_string_width(f'Tipo de reporte: {self.general_report_type}'),5, 'Tipo de reporte: ',align='R')
+            self.set_font('Arial', '', 8.5)
+            self.cell(0, 5, f'{self.general_report_type}', 0, 1, align='R')
+        self.line(10, 52, 200, 52)
         self.ln(5)
 
     def footer(self):
@@ -2459,7 +2462,7 @@ class GeneralPDFReportConsolidate(Resource):
                 pdf.general_info(report_data)
                 pdf.general_rates_by_date(report_data)
                 pdf.general_rates_by_vehicle(report_data)
-                pdf.general_rates_by_payment_types_2(report_data)
+                pdf.general_rates_by_payments_types_2(report_data)
 
                 # Convertir el PDF a BytesIO
                 pdf_data_str = pdf.output(dest='S').encode('latin1')
@@ -2479,7 +2482,7 @@ class GeneralPDFReportConsolidate(Resource):
             return {"message": f"Error interno al generar el reporte: {str(e)}"}, 500
    
 @ns.route('/General-PDF-Report-Ministry')
-class General_PDF_Report_Institutional_By_State(Resource):
+class General_PDF_Report_Ministry(Resource):
     @ns.expect(generate_report_ministry)
     def post(self):
         """ Generar el reporte para el usuario Ministerio """
@@ -2505,7 +2508,7 @@ class General_PDF_Report_Institutional_By_State(Resource):
 
             #Genero el reporte 
             pdf = Report_Generator(start_date=start_date, end_date=end_date, supervisor_info=supervisor_name,
-            general_report_type=general_report_type, report_name=report_name, state=state,toll=toll)
+            general_report_type=None, report_name=report_name, state=state,toll=toll)
 
             if state and not toll:
                 start_date = datetime.fromisoformat(start_date)
@@ -2618,7 +2621,7 @@ class General_PDF_Report_Institutional(Resource):
             pdf.general_info(report_data)
             pdf.linechart_payments_and_amount_by_date(report_data)
             pdf.add_page()
-            pdf.general_rates_by_payment_types_only_bs(report_data)
+            pdf.general_rates_by_vehicle(report_data)
             pdf.general_rates_by_vehicle_2(report_data)
             
             # Convertir el PDF a BytesIO
@@ -2637,8 +2640,9 @@ class General_PDF_Report_Institutional(Resource):
           
             # Llamar a las funciones que generan las secciones del reporte
             pdf.general_info(report_data)
+            pdf.linechart_payments_and_amount_by_date(report_data)
             pdf.add_page()
-            pdf.general_rates_by_payment_types_only_bs(report_data)
+            pdf.general_rates_by_vehicle(report_data)
             pdf.general_rates_by_vehicle_2(report_data)
 
             
