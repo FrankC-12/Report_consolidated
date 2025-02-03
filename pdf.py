@@ -2207,20 +2207,45 @@ class Report_Generator(FPDF):
         string_output = StringIO()  # Buffer de texto
         writer = csv.writer(string_output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-        # Encabezados del CSV
-        writer.writerow(["Monto Total en Bs", "Monto Total en USD", "Total de Vehículos"])
+        # Verificar si hay datos
+        if not report_data or "data" not in report_data or not report_data["data"]:
+            return None
 
-        # Extraer los datos
-        first_data_item = report_data.get("data", [])[0]
+        first_data_item = report_data["data"][0]
         results = first_data_item.get("data", {}).get("results", {})
         general_data = results.get("general_data", {})
 
+        # Datos generales
         total_payments_bs = general_data.get("total_payments_bs", 0)
         total_payments_usd = general_data.get("total_payments_usd", 0)
         vehicles = general_data.get("vehicles", 0)
 
-        # Escribir los datos en el CSV
+        # Escribir encabezados
+        writer.writerow(["Monto Total en Bs", "Monto Total en USD", "Total de Vehículos"])
         writer.writerow([total_payments_bs, total_payments_usd, vehicles])
+
+        # Obtener porcentajes de la configuración
+        configs = first_data_item.get("config", {})
+        fnt_percentage = configs.get("fnt_percentage", 0)
+        state_percentage = configs.get("gob_percentage", 0)
+        venpax_percentage = configs.get("venpax_percentage", 0)
+
+        # Calcular valores adicionales
+        total_fn_bs = total_payments_bs * fnt_percentage / 100
+        total_fn_usd = total_payments_usd * fnt_percentage / 100
+
+        total_state_bs = total_payments_bs * state_percentage / 100
+        total_state_usd = total_payments_usd * state_percentage / 100
+
+        venpax_bs = total_payments_bs * venpax_percentage / 100
+        venpax_usd = total_payments_usd * venpax_percentage / 100
+
+        # Escribir encabezados y datos adicionales
+        writer.writerow(["Fondo Nacional del Transporte (Bs)", "Gob. Estado (Bs)", "Venpax (Bs)"])
+        writer.writerow([total_fn_bs, total_state_bs, venpax_bs])
+
+        writer.writerow(["Fondo Nacional del Transporte (USD)", "Gob. Estado (USD)", "Venpax (USD)"])
+        writer.writerow([total_fn_usd, total_state_usd, venpax_usd])
 
         # Convertir `StringIO` en `BytesIO` para enviar como archivo binario
         output = BytesIO()
@@ -2234,32 +2259,32 @@ class Report_Generator(FPDF):
         Genera un archivo CSV con la información de tarifas de vehículos agrupadas por estado.
         """
         try:
-            # Obtener datos por parámetros
+            # Obtener datos del JSON recibido
             json_data = report_data
 
             if not json_data:
                 raise ValueError("No se pudo obtener los datos del backend. No se generará el CSV.")
 
-            # Procesar los datos obtenidos
-            first_data_item = json_data.get("data", [])[0]  # Obtener el primer elemento de la lista "data"
+            # Extraer los datos
+            first_data_item = json_data.get("data", [])[0]  # Obtener el primer elemento de "data"
             results = first_data_item.get("data", {}).get("results", {})
             general_data = results.get("tarifas", {})
 
             if not general_data:
                 raise ValueError("No se pudieron obtener los datos de tarifas. No se generará el reporte.")
 
-            # Inicializar totales y datos de la tabla
+            # Inicializar variables
             total_amount = total_ves_amount = total_pagos = total_ves_cash = 0
             table_data = [["Tipo de Vehículo", "Cantidad", "% Cantidad", "Monto Bs", "% Monto", "Efvo. Bs"]]
 
-            # Calcular los totales
+            # Calcular totales
             for data in general_data.values():
                 total_amount += data["cantidad"]
                 total_ves_amount += data["monto"]
                 total_pagos += data["cantidad"]
                 total_ves_cash += data["cash_collected"]["VES"]
 
-            # Añadir los datos a la tabla
+            # Construir la tabla con los datos
             for data in general_data.values():
                 amount = data["cantidad"]
                 total = data["monto"]
@@ -2288,19 +2313,26 @@ class Report_Generator(FPDF):
                 locale.format_string('%.2f', total_ves_cash, grouping=True),
             ])
 
-            # Crear un buffer para el CSV
-            output = io.StringIO()
-            csv_writer = csv.writer(output)
+            # Crear un buffer en memoria para el CSV en formato de texto
+            text_output = io.StringIO()
+            csv_writer = csv.writer(text_output)
 
-            # Título para la segunda tabla
+            # Agregar título
             csv_writer.writerow(["Reporte de Tarifas de Vehículos por Estado"])
-            csv_writer.writerow([])  # Línea en blanco entre el título y la tabla
+            csv_writer.writerow([])  # Línea en blanco
 
-            # Escribir los datos de la tabla en el CSV
+            # Escribir los datos en el CSV
             csv_writer.writerows(table_data)
-            output.seek(0)
 
-            return output.getvalue()
+            text_output.seek(0)  # Mover el puntero al inicio
+
+            return Response(
+                text_output,
+                mimetype='text/csv',
+                headers={
+                    'Content-Disposition': f'attachment; filename=reporte_tarifas_vehiculos_{datetime.now().strftime("%Y%m%d%H%M")}.csv'
+                }
+            )
 
         except (KeyError, IndexError) as e:
             raise ValueError(f"Error al procesar los datos: {str(e)}")
@@ -2649,20 +2681,7 @@ class GeneralCSVReport(Resource):
             report_data = report_generator.fetch_data_from_backend()
             if not report_data:
                 return {"message": "Error al obtener los datos del backend."}, 500
-
-            
-            csv_output = report_generator.general_info_csv(report_data)
-
-            # Asegurarse de que el puntero esté al principio del archivo
-            csv_output.seek(0)
-
-            # Enviar el archivo como respuesta para descarga
-            return send_file(
-                csv_output,
-                mimetype="text/csv",
-                as_attachment=True,
-                download_name=f"{report_name}_{datetime.now().strftime('%Y%m%d%H%M')}.csv"
-            )
+            report_generator.general_rates_by_vehicle_state_csv(report_data)
 
         except Exception as e:
             return {"message": f"Error al generar el reporte: {str(e)}"}, 500
