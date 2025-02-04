@@ -22,7 +22,8 @@ from io import BytesIO, StringIO
 import base64
 import pytz
 import requests
-import csv
+import openpyxl
+from openpyxl.styles import Font, PatternFill
 
 
 # Define el modelo del payload
@@ -2215,127 +2216,171 @@ class Report_Generator(FPDF):
         results = first_data_item.get("data", {}).get("results", {})
         general_data = results.get("general_data", {})
 
-        # Datos generales
-        total_payments_bs = general_data.get("total_payments_bs", 0)
-        total_payments_usd = general_data.get("total_payments_usd", 0)
-        vehicles = general_data.get("vehicles", 0)
-
-        # Escribir encabezados
-        writer.writerow(["Monto Total en Bs", "Monto Total en USD", "Total de Vehículos"])
-        writer.writerow([total_payments_bs, total_payments_usd, vehicles])
-
-        # Obtener porcentajes de la configuración
-        configs = first_data_item.get("config", {})
-        fnt_percentage = configs.get("fnt_percentage", 0)
-        state_percentage = configs.get("gob_percentage", 0)
-        venpax_percentage = configs.get("venpax_percentage", 0)
-
-        # Calcular valores adicionales
-        total_fn_bs = total_payments_bs * fnt_percentage / 100
-        total_fn_usd = total_payments_usd * fnt_percentage / 100
-
-        total_state_bs = total_payments_bs * state_percentage / 100
-        total_state_usd = total_payments_usd * state_percentage / 100
-
-        venpax_bs = total_payments_bs * venpax_percentage / 100
-        venpax_usd = total_payments_usd * venpax_percentage / 100
-
-        # Escribir encabezados y datos adicionales
-        writer.writerow(["Fondo Nacional del Transporte (Bs)", "Gob. Estado (Bs)", "Venpax (Bs)"])
-        writer.writerow([total_fn_bs, total_state_bs, venpax_bs])
-
-        writer.writerow(["Fondo Nacional del Transporte (USD)", "Gob. Estado (USD)", "Venpax (USD)"])
-        writer.writerow([total_fn_usd, total_state_usd, venpax_usd])
-
-        # Convertir `StringIO` en `BytesIO` para enviar como archivo binario
-        output = BytesIO()
-        output.write(string_output.getvalue().encode('utf-8'))  # Convertir a bytes
-        output.seek(0)  # Mover el puntero al inicio
-
-        return output
         
-    def general_rates_by_vehicle_state_csv(self, report_data):
+        
+    def general_rates_by_vehicle_state_excel(self, report_data):
         """
-        Genera un archivo CSV con la información de tarifas de vehículos agrupadas por estado.
+        Exporta los datos en un archivo Excel con dos hojas:
+        1. Tarifas de vehículos
+        2. Métodos de pago
         """
+        if not report_data:
+            return None
+
         try:
-            # Obtener datos del JSON recibido
-            json_data = report_data
+            wb = openpyxl.Workbook()
 
-            if not json_data:
-                raise ValueError("No se pudo obtener los datos del backend. No se generará el CSV.")
 
-            # Extraer los datos
-            first_data_item = json_data.get("data", [])[0]  # Obtener el primer elemento de "data"
+            first_data_item = report_data.get("data", [])[0]  
             results = first_data_item.get("data", {}).get("results", {})
-            general_data = results.get("tarifas", {})
 
-            if not general_data:
-                raise ValueError("No se pudieron obtener los datos de tarifas. No se generará el reporte.")
+            # ------------------ Hoja 1: Tarifas de Vehículos ------------------
+            ws1 = wb.active
+            ws1.title = "Tarifas de Vehículos"
 
-            # Inicializar variables
+            tarifas_data = results.get("tarifas", {})
+            table1_data = [["Tipo de Vehículo", "Cantidad", "% Cantidad", "Monto Bs", "% Monto", "Efvo. Bs"]]
+
             total_amount = total_ves_amount = total_pagos = total_ves_cash = 0
-            table_data = [["Tipo de Vehículo", "Cantidad", "% Cantidad", "Monto Bs", "% Monto", "Efvo. Bs"]]
-
-            # Calcular totales
-            for data in general_data.values():
+            for data in tarifas_data.values():
                 total_amount += data["cantidad"]
                 total_ves_amount += data["monto"]
                 total_pagos += data["cantidad"]
                 total_ves_cash += data["cash_collected"]["VES"]
 
-            # Construir la tabla con los datos
-            for data in general_data.values():
-                amount = data["cantidad"]
-                total = data["monto"]
-                ves_cash = data["cash_collected"]["VES"]
-
-                # Calcular porcentajes
-                percentage_amount = (amount / total_amount) * 100 if total_amount else 0
-                percentage_ves_cash = (total / total_ves_amount) * 100 if total_ves_amount else 0
-
-                table_data.append([
+            for data in tarifas_data.values():
+                table1_data.append([
                     data["nombre"],
-                    locale.format_string('%.0f', amount, grouping=True),
-                    f"{locale.format_string('%.2f', percentage_amount, grouping=True)}%",
-                    locale.format_string('%.2f', total, grouping=True),
-                    f"{locale.format_string('%.2f', percentage_ves_cash, grouping=True)}%",
-                    locale.format_string('%.2f', ves_cash, grouping=True),
+                    locale.format_string('%.0f', data["cantidad"], grouping=True),
+                    f"{locale.format_string('%.2f', (data['cantidad'] / total_amount) * 100 if total_amount else 0, grouping=True)}%",
+                    locale.format_string('%.2f', data["monto"], grouping=True),
+                    f"{locale.format_string('%.2f', (data['monto'] / total_ves_amount) * 100 if total_ves_amount else 0, grouping=True)}%",
+                    locale.format_string('%.2f', data["cash_collected"]["VES"], grouping=True),
                 ])
 
+            table1_data.append(["Totales", locale.format_string('%.0f', total_pagos, grouping=True), "", locale.format_string('%.2f', total_ves_amount, grouping=True), "", locale.format_string('%.2f', total_ves_cash, grouping=True)])
+
+            # Escribir en hoja 1
+            for row_idx, row_data in enumerate(table1_data, start=1):
+                for col_idx, value in enumerate(row_data, start=1):
+                    cell = ws1.cell(row=row_idx, column=col_idx, value=value)
+                    if row_idx == 1:
+                        cell.font = Font(bold=True, color="FFFFFF")
+                        cell.fill = PatternFill(start_color="FF8000", end_color="FF8000", fill_type="solid")
+                    elif row_idx == len(table1_data):
+                        cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+
+            # Ajustar ancho de columnas en hoja 1
+            for col in ws1.columns:
+                max_length = 0
+                col_letter = col[0].column_letter
+                for cell in col:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                ws1.column_dimensions[col_letter].width = max_length + 2
+
+            # ------------------ Hoja 2: Métodos de Pago ------------------
+            ws2 = wb.create_sheet(title="Métodos de Pago")
+
+            first_data_item = report_data.get("data", [])[0]  
+            results = first_data_item.get("data", {}).get("results", {})
+
+            general_data = results.get("metodos_pago", {})
+            table2_data = [["Método de Pago", "N° Transacciones", "% Transacciones", "Monto Bs", "% Monto"]]
+
+            # Inicializar variables para los totales
+            total_num_transactions = 0
+            total_ves_amount = 0
+
+            # Lista para almacenar los datos de la tabla
+            table_data = [["Método de Pago", "N° Transacciones", "% Transacciones", "Monto Bs", "% Monto"]]
+
+            # Calcular totales generales
+            for group_key, group in general_data.items():
+                if isinstance(group, dict):
+                    for payment_key, data in group.items():
+                        if isinstance(data, dict):
+                            total_num_transactions += data.get("num_transactions", 0)
+                            total_ves_amount += data.get("amount_pivoted", 0)
+
+
+            total_bs = 0
+            total_transactions = 0
+            total_amount_transactions = 0
+            total_amount_collected = 0
+            for key, inner_objects in general_data.items():
+                for payment_key, data in inner_objects.items():
+                    if isinstance(data, dict):
+                        if data.get("name") == "Efectivo Dólares" or data.get("name") == "Efectivo Pesos":
+                            print(data.get("name"))
+                            total_bs += data.get("amount_pivoted", 0)
+                            total_transactions += data.get("num_transactions", 0)
+                            total_amount_transactions += data.get("percentage_transactions", 0)
+                            total_amount_collected += data.get("percentage_amount_collected", 0)
+
+            for key, inner_objects in general_data.items():
+                if key == "3":
+                    for inner_key, data in inner_objects.items():
+                        if isinstance(data, dict):
+                            if data.get("name") == "Efectivo Bolívares":
+                                num_transactions = data.get("num_transactions",0) + total_transactions
+                                total = data.get("amount_pivoted",0) + total_bs
+                                payment_name = data.get("name", "")
+                                percentage_transactions = data.get("percentage_transactions",0) + total_amount_transactions
+                                percentage_amount_collected = data.get("percentage_amount_collected",0) + total_amount_collected
+                            else:
+                                num_transactions = data.get("num_transactions",0)
+                                total = data.get("amount_pivoted",0)
+                                payment_name = data.get("name", "") 
+                                percentage_transactions = data.get("percentage_transactions",0)
+                                percentage_amount_collected = data.get("percentage_amount_collected",0)
+
+                            # Agregar fila a la tabla
+                            table_data.append(
+                                [
+                                    payment_name,
+                                    locale.format_string('%.0f', num_transactions, grouping=True),
+                                    f"{locale.format_string('%.2f', percentage_transactions, grouping=True)}%",
+                                    locale.format_string('%.2f', total, grouping=True),
+                                    f"{locale.format_string('%.2f', percentage_amount_collected, grouping=True)}%",
+                                ]
+                            )
+                        
             # Agregar fila de totales
             table_data.append([
                 "Totales",
-                locale.format_string('%.0f', total_pagos, grouping=True),
+                locale.format_string('%.0f', total_num_transactions, grouping=True),
                 "",
                 locale.format_string('%.2f', total_ves_amount, grouping=True),
                 "",
-                locale.format_string('%.2f', total_ves_cash, grouping=True),
             ])
 
-            # Crear un buffer en memoria para el CSV en formato de texto
-            text_output = io.StringIO()
-            csv_writer = csv.writer(text_output)
+            # Write to sheet
+            for row_idx, row_data in enumerate(table_data, start=1):
+                for col_idx, value in enumerate(row_data, start=1):
+                    cell = ws2.cell(row=row_idx, column=col_idx, value=value)
+                    if row_idx == 1:
+                        cell.font = Font(bold=True, color="FFFFFF")
+                        cell.fill = PatternFill(start_color="FF8000", end_color="FF8000", fill_type="solid")
+                    elif row_idx == len(table_data):
+                        cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 
-            # Agregar título
-            csv_writer.writerow(["Reporte de Tarifas de Vehículos por Estado"])
-            csv_writer.writerow([])  # Línea en blanco
+            # Adjust column width
+            for col in ws2.columns:
+                max_length = 0
+                col_letter = col[0].column_letter
+                for cell in col:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                ws2.column_dimensions[col_letter].width = max_length + 2
 
-            # Escribir los datos en el CSV
-            csv_writer.writerows(table_data)
-
-            text_output.seek(0)  # Mover el puntero al inicio
-
-            return Response(
-                text_output,
-                mimetype='text/csv',
-                headers={
-                    'Content-Disposition': f'attachment; filename=reporte_tarifas_vehiculos_{datetime.now().strftime("%Y%m%d%H%M")}.csv'
-                }
-            )
-
-        except (KeyError, IndexError) as e:
-            raise ValueError(f"Error al procesar los datos: {str(e)}")
+            # Save and return the output
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+            return output.read()
+        except Exception as e:
+            return {"message": f"Error al generar el archivo Excel: {str(e)}"}, 500
 
 @ns.route('/General-PDF-Report-Consolidate')
 class GeneralPDFReportConsolidate(Resource):
@@ -2648,9 +2693,12 @@ class General_PDF_Report_Institutional(Resource):
             ) 
 
       
-@ns.route('/General-CSV-Report')
+@ns.route('/General-Excel-Report')
 class GeneralCSVReport(Resource):
     @ns.expect(generate_report_general_report_consolidated)
+    @ns.response(200, "Éxito", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    @ns.response(400, "Solicitud inválida")
+    @ns.response(500, "Error al generar el reporte")
     def post(self):
         payload = api.payload
 
@@ -2667,28 +2715,56 @@ class GeneralCSVReport(Resource):
 
         try:
             # Crear instancia del generador de reportes
-            report_generator = Report_Generator(
-                start_date=start_date, 
-                end_date=end_date, 
-                supervisor_info=supervisor_name,
-                general_report_type=general_report_type, 
-                report_name=report_name, 
-                state=state, 
-                toll=toll
-            )
+            if state and not toll:
+                excel = Report_Generator(
+                    start_date=start_date, 
+                    end_date=end_date, 
+                    supervisor_info=supervisor_name,
+                    general_report_type=general_report_type, 
+                    report_name=report_name, 
+                    state=state, 
+                    toll=toll
+                )
 
-            # Obtener los datos del backend
-            report_data = report_generator.fetch_data_from_backend()
-            if not report_data:
-                return {"message": "Error al obtener los datos del backend."}, 500
-            report_generator.general_rates_by_vehicle_state_csv(report_data)
+                # Obtener los datos del backend
+                report_data = excel.fetch_data_from_backend()
+                if not report_data:
+                    return {"message": "Error al obtener los datos del backend."}, 500
+            
+
+                # Generar el Excel
+                excel_content = excel.general_rates_by_vehicle_state_excel(report_data)
+                if not excel_content:
+                    return {"message": "Error al generar el reporte."}, 500
+            else:
+                excel = Report_Generator(
+                    start_date=start_date, 
+                    end_date=end_date, 
+                    supervisor_info=supervisor_name,
+                    general_report_type=general_report_type, 
+                    report_name=report_name, 
+                    state=state, 
+                    toll=toll
+                )
+
+                # Obtener los datos del backend
+                report_data = excel.fetch_data_by_toll_from_backend()
+                if not report_data:
+                    return {"message": "Error al obtener los datos del backend."}, 500
+            
+
+                # Generar el Excel
+                excel_content = excel.general_rates_by_vehicle_state_excel(report_data)
+                if not excel_content:
+                    return {"message": "Error al generar el reporte."}, 500
+
+            # Retornar el archivo Excel
+            response = Response(excel_content, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            response.headers["Content-Disposition"] = f"attachment; filename={report_name}.xlsx"
+            return response
 
         except Exception as e:
             return {"message": f"Error al generar el reporte: {str(e)}"}, 500
-
-        
-
-        
 
 # Inicializar la aplicación Flask
 if __name__ == "__main__":
