@@ -2730,12 +2730,6 @@ class GeneralCSVReport(Resource):
                 report_data = excel.fetch_data_from_backend()
                 if not report_data:
                     return {"message": "Error al obtener los datos del backend."}, 500
-            
-
-                # Generar el Excel
-                excel_content = excel.general_rates_by_vehicle_state_excel(report_data)
-                if not excel_content:
-                    return {"message": "Error al generar el reporte."}, 500
             else:
                 excel = Report_Generator(
                     start_date=start_date, 
@@ -2753,10 +2747,10 @@ class GeneralCSVReport(Resource):
                     return {"message": "Error al obtener los datos del backend."}, 500
             
 
-                # Generar el Excel
-                excel_content = excel.general_rates_by_vehicle_state_excel(report_data)
-                if not excel_content:
-                    return {"message": "Error al generar el reporte."}, 500
+            # Generar el Excel
+            excel_content = excel.general_rates_by_vehicle_state_excel(report_data)
+            if not excel_content:
+                return {"message": "Error al generar el reporte."}, 500
 
             # Retornar el archivo Excel
             response = Response(excel_content, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
